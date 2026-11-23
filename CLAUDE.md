@@ -29,3 +29,7 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
 ## Status
 - 1.0.0 installed on the tablet 2026-11-23; M3U login works.
 - 1.0.1: Xtream login form forgives https/missing :8080, no auto-capitalize on login inputs (android-post.js).
+- 1.1.0: player controls redesigned like the Windows player (bottom glass panel: seek row + mute/volume | aspect ⏮ ⟲30 ▶ 30⟳ ⏭ CC audio ⚙ | 123),
+  top glass chips Link (copy/share) · Download (VOD, DownloadManager → Downloads/AlnurIPTV, stops playback: 1 connection) · Open in… (other app).
+  Icons = vector drawables made from the Windows SVG paths (res/drawable/ic_*.xml).
+- 2026-11-23: GitHub Actions refused to start ("recent account payments have failed / spending limit") – user must fix billing or make repo public.

@@ -2,6 +2,16 @@ package com.alnur.iptv;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Intent;
+import android.content.res.ColorStateList;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.RippleDrawable;
+import android.os.Environment;
+import android.widget.ImageView;
+import android.widget.Toast;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -57,9 +67,12 @@ public class PlayerActivity extends Activity {
     final Handler h = new Handler(Looper.getMainLooper());
 
     FrameLayout root, controls;
-    TextView title, subtitle, playBtn, prevBtn, nextBtn, backBtn, rwBtn, ffBtn, curTime, durTime, osd, msg, liveBadge, numBtn;
+    TextView title, subtitle, curTime, durTime, osd, msg, liveBadge;
+    ImageView playBtn, prevBtn, nextBtn, backBtn, numBtn, muteBtn;
+    View rwBtn, ffBtn, linkBtn, dlBtn, openBtn;
     LinearLayout bottomBar;
-    SeekBar seek;
+    SeekBar seek, vol;
+    boolean stoppedForOther; // playback stopped so Download / another app can use the 1 connection
     ProgressBar spinner;
     boolean seeking, controlsShown = true, ended;
     int scaleMode = 0;
@@ -125,7 +138,10 @@ public class PlayerActivity extends Activity {
         ffBtn.setVisibility(live ? View.GONE : View.VISIBLE);
         seek.setVisibility(live ? View.INVISIBLE : View.VISIBLE);
         liveBadge.setVisibility(live ? View.VISIBLE : View.GONE);
+        durTime.setVisibility(live ? View.GONE : View.VISIBLE);
+        curTime.setVisibility(live ? View.GONE : View.VISIBLE);
         numBtn.setVisibility(live ? View.VISIBLE : View.GONE);
+        dlBtn.setVisibility(live ? View.GONE : View.VISIBLE);
         boolean many = items.size() > 1;
         prevBtn.setAlpha(many ? 1f : 0.3f); nextBtn.setAlpha(many ? 1f : 0.3f);
         curTime.setText(""); durTime.setText("");
@@ -135,6 +151,7 @@ public class PlayerActivity extends Activity {
     }
 
     void start(String url, long startMs) {
+        stoppedForOther = false;
         spinner.setVisibility(View.VISIBLE);
         try { mp.stop(); } catch (Exception ignored) { }
         Media m = new Media(vlc, Uri.parse(url));
@@ -156,11 +173,11 @@ public class PlayerActivity extends Activity {
                 break;
             case MediaPlayer.Event.Playing:
                 spinner.setVisibility(View.GONE);
-                playBtn.setText("❚❚");
+                setPlayIcon(true);
                 msg.setVisibility(View.GONE);
                 break;
             case MediaPlayer.Event.Paused:
-                playBtn.setText("▶");
+                setPlayIcon(false);
                 break;
             case MediaPlayer.Event.Vout:
                 if (e.getVoutCount() > 0) { spinner.setVisibility(View.GONE); applyScale(); }
@@ -189,7 +206,7 @@ public class PlayerActivity extends Activity {
             toast("Next episode…");
             h.postDelayed(() -> playIndex(index + 1, false), 1500);
         } else {
-            playBtn.setText("▶");
+            setPlayIcon(false);
             showControls();
         }
     }
@@ -228,6 +245,7 @@ public class PlayerActivity extends Activity {
 
     void togglePlay() {
         if (ended) { playIndex(index, false); return; }
+        if (stoppedForOther) { msg.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); return; }
         if (mp.isPlaying()) mp.pause(); else mp.play();
         showControls();
     }
@@ -337,7 +355,8 @@ public class PlayerActivity extends Activity {
                     if (swipeSide == 1) {
                         int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
                         audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(v * max), 0);
-                        osd("🔊 " + Math.round(v * 100) + "%");
+                        syncVolume();
+                        osd((Math.round(v * max) == 0 ? "🔇 " : "🔊 ") + Math.round(v * 100) + "%");
                     } else {
                         WindowManager.LayoutParams lp = getWindow().getAttributes();
                         lp.screenBrightness = Math.max(0.02f, v);
@@ -359,31 +378,87 @@ public class PlayerActivity extends Activity {
         return b;
     }
 
-    // ------------------------------------------------------------------ UI
+    // ------------------------------------------------------------------ UI (same layout as the Windows app, glass look)
     int dp(float v) { return Math.round(v * density); }
 
-    TextView btn(String text, float sp, int sizeDp, boolean round) {
+    /** frosted-glass panel: dark see-through fill, thin light border, soft top highlight */
+    GradientDrawable glass(float radiusDp, int alpha) {
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.argb(alpha, 70, 72, 84), Color.argb(alpha, 28, 29, 36)});
+        g.setCornerRadius(dp(radiusDp));
+        g.setStroke(Math.max(1, dp(1)), Color.argb(70, 255, 255, 255));
+        return g;
+    }
+
+    RippleDrawable ripple(Drawable content, boolean oval) {
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(Color.WHITE);
+        if (oval) mask.setShape(GradientDrawable.OVAL); else mask.setCornerRadius(dp(14));
+        return new RippleDrawable(ColorStateList.valueOf(Color.argb(90, 255, 255, 255)), content, mask);
+    }
+
+    ImageView iconBtn(int res, int sizeDp, int iconDp, String desc) {
+        ImageView v = new ImageView(this);
+        v.setImageResource(res);
+        v.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int pad = dp((sizeDp - iconDp) / 2f);
+        v.setPadding(pad, pad, pad, pad);
+        v.setBackground(ripple(null, true));
+        v.setContentDescription(desc);
+        v.setClickable(true);
+        v.setLayoutParams(new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
+        return v;
+    }
+
+    /** round arrow with "10"/"30" written inside, like the Windows player */
+    FrameLayout skipBtn(int res, String secs) {
+        FrameLayout f = new FrameLayout(this);
+        ImageView i = new ImageView(this);
+        i.setImageResource(res);
+        i.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        f.addView(i, new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER));
         TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        t.setGravity(Gravity.CENTER);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(round ? 70 : 60, 255, 255, 255));
-        if (round) bg.setShape(GradientDrawable.OVAL); else bg.setCornerRadius(dp(10));
-        t.setBackground(bg);
-        t.setPadding(dp(12), 0, dp(12), 0);
-        t.setMinWidth(dp(sizeDp));
-        t.setMinHeight(dp(round ? sizeDp : 40));
-        if (round) { t.setWidth(dp(sizeDp)); t.setHeight(dp(sizeDp)); t.setPadding(0, 0, 0, 0); }
-        return t;
+        t.setText(secs); t.setTextColor(Color.WHITE); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 9); t.setTypeface(Typeface.DEFAULT_BOLD);
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER); tl.topMargin = dp(3);
+        f.addView(t, tl);
+        f.setBackground(ripple(null, true));
+        f.setClickable(true);
+        f.setLayoutParams(new LinearLayout.LayoutParams(dp(50), dp(50)));
+        return f;
+    }
+
+    /** glass pill with icon + text (top bar: Link, Download, Open in…) */
+    LinearLayout chip(int res, String text) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(Gravity.CENTER_VERTICAL);
+        c.setPadding(dp(14), 0, dp(16), 0);
+        c.setBackground(ripple(glass(22, 150), false));
+        c.setClickable(true);
+        ImageView i = new ImageView(this); i.setImageResource(res);
+        c.addView(i, new LinearLayout.LayoutParams(dp(18), dp(18)));
+        TextView t = new TextView(this); t.setText(text); t.setTextColor(Color.WHITE); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14); t.setTypeface(Typeface.DEFAULT_BOLD);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2); tl.leftMargin = dp(8);
+        c.addView(t, tl);
+        return c;
     }
 
     LinearLayout.LayoutParams lpm(int l, int r) {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         p.leftMargin = dp(l); p.rightMargin = dp(r); p.gravity = Gravity.CENTER_VERTICAL;
         return p;
+    }
+    LinearLayout.LayoutParams sized(View v, int l, int r) {
+        ViewGroup.LayoutParams o = v.getLayoutParams();
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(o != null ? o.width : -2, o != null ? o.height : -2);
+        p.leftMargin = dp(l); p.rightMargin = dp(r); p.gravity = Gravity.CENTER_VERTICAL;
+        return p;
+    }
+
+    void tintSeek(SeekBar s, int color) {
+        s.setProgressTintList(ColorStateList.valueOf(color));
+        s.setThumbTintList(ColorStateList.valueOf(Color.WHITE));
+        s.setProgressBackgroundTintList(ColorStateList.valueOf(Color.argb(110, 255, 255, 255)));
     }
 
     void buildUi() {
@@ -393,76 +468,106 @@ public class PlayerActivity extends Activity {
         root.addView(videoLayout, new FrameLayout.LayoutParams(-1, -1));
 
         spinner = new ProgressBar(this);
-        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER);
-        root.addView(spinner, sp);
+        root.addView(spinner, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER));
 
         controls = new FrameLayout(this);
         root.addView(controls, new FrameLayout.LayoutParams(-1, -1));
 
-        // top bar
+        // ---- top bar: ← title ........ [Link] [Download] [Open in…]
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setPadding(dp(16), dp(14), dp(16), dp(30));
-        top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.argb(170, 0, 0, 0), Color.TRANSPARENT}));
-        backBtn = btn("←", 22, 46, true);
-        top.addView(backBtn, lpm(0, 14));
+        top.setPadding(dp(18), dp(16), dp(18), dp(36));
+        top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.argb(160, 0, 0, 0), Color.TRANSPARENT}));
+        backBtn = iconBtn(R.drawable.ic_back, 48, 24, "Back");
+        backBtn.setBackground(ripple(glass(24, 150), true));
+        top.addView(backBtn, sized(backBtn, 0, 14));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
-        title = new TextView(this); title.setTextColor(Color.WHITE); title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18); title.setTypeface(Typeface.DEFAULT_BOLD); title.setSingleLine(true);
-        subtitle = new TextView(this); subtitle.setTextColor(Color.argb(190, 255, 255, 255)); subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13); subtitle.setSingleLine(true);
+        title = new TextView(this); title.setTextColor(Color.WHITE); title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19); title.setTypeface(Typeface.DEFAULT_BOLD); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        subtitle = new TextView(this); subtitle.setTextColor(Color.argb(200, 255, 255, 255)); subtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13); subtitle.setSingleLine(true);
         titles.addView(title); titles.addView(subtitle);
-        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        top.addView(titles, tl);
-        numBtn = btn("123", 15, 56, false);
-        TextView aud = btn("Audio", 15, 64, false), sub = btn("CC", 15, 52, false), scale = btn("⤢", 18, 52, false);
-        top.addView(numBtn, lpm(8, 0)); top.addView(aud, lpm(8, 0)); top.addView(sub, lpm(8, 0)); top.addView(scale, lpm(8, 0));
+        top.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        linkBtn = chip(R.drawable.ic_link, "Link");
+        dlBtn = chip(R.drawable.ic_download, "Download");
+        openBtn = chip(R.drawable.ic_open, "Open in…");
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(-2, dp(44)); cl.leftMargin = dp(10);
+        top.addView(linkBtn, cl);
+        top.addView(dlBtn, new LinearLayout.LayoutParams(cl));
+        top.addView(openBtn, new LinearLayout.LayoutParams(cl));
         controls.addView(top, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
 
-        // centre row
-        LinearLayout mid = new LinearLayout(this);
-        mid.setOrientation(LinearLayout.HORIZONTAL);
-        mid.setGravity(Gravity.CENTER);
-        prevBtn = btn("⏮", 22, 60, true);
-        rwBtn = btn("⟲30", 15, 60, true);
-        playBtn = btn("❚❚", 26, 84, true);
-        ffBtn = btn("30⟳", 15, 60, true);
-        nextBtn = btn("⏭", 22, 60, true);
-        mid.addView(prevBtn, lpm(14, 14)); mid.addView(rwBtn, lpm(14, 14)); mid.addView(playBtn, lpm(14, 14)); mid.addView(ffBtn, lpm(14, 14)); mid.addView(nextBtn, lpm(14, 14));
-        controls.addView(mid, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
-
-        // bottom bar
+        // ---- bottom glass panel (same order as the Windows player)
         bottomBar = new LinearLayout(this);
-        bottomBar.setOrientation(LinearLayout.HORIZONTAL);
-        bottomBar.setGravity(Gravity.CENTER_VERTICAL);
-        bottomBar.setPadding(dp(20), dp(30), dp(20), dp(18));
-        bottomBar.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{Color.argb(170, 0, 0, 0), Color.TRANSPARENT}));
-        liveBadge = new TextView(this); liveBadge.setText("● LIVE"); liveBadge.setTextColor(Color.rgb(255, 90, 90)); liveBadge.setTypeface(Typeface.DEFAULT_BOLD); liveBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        curTime = new TextView(this); curTime.setTextColor(Color.WHITE); curTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        durTime = new TextView(this); durTime.setTextColor(Color.WHITE); durTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        seek = new SeekBar(this);
-        bottomBar.addView(liveBadge, lpm(0, 10));
-        bottomBar.addView(curTime, lpm(0, 6));
-        bottomBar.addView(seek, new LinearLayout.LayoutParams(0, dp(40), 1f));
-        bottomBar.addView(durTime, lpm(6, 0));
-        controls.addView(bottomBar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        bottomBar.setOrientation(LinearLayout.VERTICAL);
+        bottomBar.setPadding(dp(20), dp(12), dp(20), dp(8));
+        bottomBar.setBackground(glass(26, 165));
+        bottomBar.setClickable(true); // taps on the panel don't hide the controls
 
-        // OSD + message
+        // row 1: time  ━━━━━●───  duration / LIVE
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        row1.setGravity(Gravity.CENTER_VERTICAL);
+        curTime = new TextView(this); curTime.setTextColor(Color.WHITE); curTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14); curTime.setTypeface(Typeface.MONOSPACE);
+        durTime = new TextView(this); durTime.setTextColor(Color.WHITE); durTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14); durTime.setTypeface(Typeface.MONOSPACE);
+        liveBadge = new TextView(this); liveBadge.setText("● LIVE"); liveBadge.setTextColor(Color.rgb(255, 80, 80)); liveBadge.setTypeface(Typeface.DEFAULT_BOLD); liveBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        seek = new SeekBar(this);
+        tintSeek(seek, Color.rgb(229, 57, 53));
+        row1.addView(curTime, lpm(0, 8));
+        row1.addView(seek, new LinearLayout.LayoutParams(0, dp(36), 1f));
+        row1.addView(liveBadge, lpm(8, 0));
+        row1.addView(durTime, lpm(8, 0));
+        bottomBar.addView(row1, new LinearLayout.LayoutParams(-1, -2));
+
+        // row 2: [mute ─vol─]      [aspect ⏮ ⟲30 ▶ 30⟳ ⏭ CC audio ⚙]      [123]
+        FrameLayout row2 = new FrameLayout(this);
+        LinearLayout left = new LinearLayout(this); left.setGravity(Gravity.CENTER_VERTICAL);
+        muteBtn = iconBtn(R.drawable.ic_vol, 44, 24, "Mute");
+        vol = new SeekBar(this); tintSeek(vol, Color.WHITE);
+        vol.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        left.addView(muteBtn, sized(muteBtn, 0, 2));
+        left.addView(vol, new LinearLayout.LayoutParams(dp(140), dp(36)));
+        row2.addView(left, new FrameLayout.LayoutParams(-2, -2, Gravity.START | Gravity.CENTER_VERTICAL));
+
+        LinearLayout mid = new LinearLayout(this); mid.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView aspect = iconBtn(R.drawable.ic_aspect, 46, 24, "Aspect ratio");
+        prevBtn = iconBtn(R.drawable.ic_prev, 50, 28, "Previous");
+        rwBtn = skipBtn(R.drawable.ic_rew, "30");
+        playBtn = iconBtn(R.drawable.ic_pause, 62, 30, "Play / Pause");
+        GradientDrawable pbg = new GradientDrawable(); pbg.setShape(GradientDrawable.OVAL); pbg.setColor(Color.argb(235, 255, 255, 255));
+        playBtn.setBackground(ripple(pbg, true));
+        playBtn.setColorFilter(Color.rgb(20, 20, 28));
+        ffBtn = skipBtn(R.drawable.ic_fwd, "30");
+        nextBtn = iconBtn(R.drawable.ic_next, 50, 28, "Next");
+        ImageView subs = iconBtn(R.drawable.ic_subs, 46, 24, "Subtitles");
+        ImageView aud = iconBtn(R.drawable.ic_audio, 46, 24, "Audio track");
+        ImageView set = iconBtn(R.drawable.ic_settings, 46, 24, "Settings");
+        View[] row = {aspect, prevBtn, rwBtn, playBtn, ffBtn, nextBtn, subs, aud, set};
+        for (View v : row) mid.addView(v, sized(v, 6, 6));
+        row2.addView(mid, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+
+        numBtn = iconBtn(R.drawable.ic_dialpad, 46, 22, "Channel number");
+        row2.addView(numBtn, new FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END | Gravity.CENTER_VERTICAL));
+        bottomBar.addView(row2, new LinearLayout.LayoutParams(-1, dp(66)));
+
+        FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
+        bl.leftMargin = dp(22); bl.rightMargin = dp(22); bl.bottomMargin = dp(18);
+        controls.addView(bottomBar, bl);
+
+        // ---- OSD + message (glass too)
         osd = new TextView(this);
         osd.setTextColor(Color.WHITE); osd.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22); osd.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable ob = new GradientDrawable(); ob.setColor(Color.argb(170, 0, 0, 0)); ob.setCornerRadius(dp(14));
-        osd.setBackground(ob); osd.setPadding(dp(18), dp(10), dp(18), dp(10)); osd.setVisibility(View.GONE);
-        FrameLayout.LayoutParams ol = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL | Gravity.TOP); ol.topMargin = dp(90);
+        osd.setBackground(glass(18, 190)); osd.setPadding(dp(22), dp(12), dp(22), dp(12)); osd.setVisibility(View.GONE);
+        FrameLayout.LayoutParams ol = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL | Gravity.TOP); ol.topMargin = dp(100);
         root.addView(osd, ol);
         msg = new TextView(this);
         msg.setTextColor(Color.WHITE); msg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16); msg.setGravity(Gravity.CENTER);
-        GradientDrawable mb = new GradientDrawable(); mb.setColor(Color.argb(200, 20, 20, 30)); mb.setCornerRadius(dp(14));
-        msg.setBackground(mb); msg.setPadding(dp(24), dp(18), dp(24), dp(18)); msg.setVisibility(View.GONE);
+        msg.setBackground(glass(18, 215)); msg.setPadding(dp(26), dp(20), dp(26), dp(20)); msg.setVisibility(View.GONE);
         root.addView(msg, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
 
         setContentView(root);
 
-        // actions
+        // ---- actions
         backBtn.setOnClickListener(v -> finishWithResult());
         playBtn.setOnClickListener(v -> togglePlay());
         rwBtn.setOnClickListener(v -> seekBy(-30));
@@ -470,14 +575,28 @@ public class PlayerActivity extends Activity {
         prevBtn.setOnClickListener(v -> zap(-1));
         nextBtn.setOnClickListener(v -> zap(1));
         aud.setOnClickListener(v -> audioMenu());
-        sub.setOnClickListener(v -> subsMenu());
-        scale.setOnClickListener(v -> cycleScale());
+        subs.setOnClickListener(v -> subsMenu());
+        aspect.setOnClickListener(v -> cycleScale());
+        set.setOnClickListener(v -> settingsMenu());
         numBtn.setOnClickListener(v -> numberPad());
+        muteBtn.setOnClickListener(v -> toggleMute());
+        linkBtn.setOnClickListener(v -> showLink());
+        dlBtn.setOnClickListener(v -> askDownload());
+        openBtn.setOnClickListener(v -> openInOtherApp());
         msg.setOnClickListener(v -> { msg.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); });
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user) curTime.setText(fmt(p)); }
             @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; h.removeCallbacks(hideCtl); }
             @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; mp.setTime(s.getProgress() * 1000L); showControls(); }
+        });
+        vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) return;
+                audio.setStreamVolume(AudioManager.STREAM_MUSIC, p, 0);
+                updateMuteIcon();
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) { h.removeCallbacks(hideCtl); }
+            @Override public void onStopTrackingTouch(SeekBar s) { showControls(); }
         });
 
         gd = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
@@ -500,9 +619,118 @@ public class PlayerActivity extends Activity {
         controls.setOnTouchListener((v, ev) -> handleTouch(ev));
     }
 
+    void setPlayIcon(boolean playing) { playBtn.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play); }
+
+    // ------------------------------------------------------------------ volume
+    int volBeforeMute = -1;
+    void toggleMute() {
+        int v = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
+        if (v > 0) { volBeforeMute = v; audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0); osd("🔇 Mute"); }
+        else {
+            int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int back = volBeforeMute > 0 ? volBeforeMute : Math.max(1, max / 2);
+            audio.setStreamVolume(AudioManager.STREAM_MUSIC, back, 0);
+            osd("🔊 " + Math.round(back * 100f / max) + "%");
+        }
+        syncVolume();
+        showControls();
+    }
+    void syncVolume() { if (vol != null) vol.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC)); updateMuteIcon(); }
+    void updateMuteIcon() { if (muteBtn != null) muteBtn.setImageResource(audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 ? R.drawable.ic_mute : R.drawable.ic_vol); }
+
+    // ------------------------------------------------------------------ settings: speed + aspect
+    static final float[] SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
+    void settingsMenu() {
+        String[] opts = isLive() ? new String[]{"Aspect ratio: " + SCALE_NAMES[scaleMode]}
+                : new String[]{"Speed: " + speedName(mp.getRate()), "Aspect ratio: " + SCALE_NAMES[scaleMode]};
+        new AlertDialog.Builder(this).setTitle("Settings").setItems(opts, (d, w) -> {
+            if (!isLive() && w == 0) speedMenu(); else scaleMenu();
+        }).show();
+    }
+    static String speedName(float r) { return (Math.abs(r - 1f) < 0.01f ? "Normal" : (r == (int) r ? String.valueOf((int) r) : String.valueOf(r)) + "×"); }
+    void speedMenu() {
+        String[] n = new String[SPEEDS.length]; int sel = 0;
+        for (int i = 0; i < SPEEDS.length; i++) { n[i] = speedName(SPEEDS[i]); if (Math.abs(SPEEDS[i] - mp.getRate()) < 0.01f) sel = i; }
+        new AlertDialog.Builder(this).setTitle("Speed").setSingleChoiceItems(n, sel, (d, w) -> { mp.setRate(SPEEDS[w]); osd("Speed " + n[w]); d.dismiss(); }).show();
+    }
+    void scaleMenu() {
+        new AlertDialog.Builder(this).setTitle("Aspect ratio").setSingleChoiceItems(SCALE_NAMES, scaleMode, (d, w) -> { scaleMode = w; applyScale(); osd("⤢ " + SCALE_NAMES[w]); d.dismiss(); }).show();
+    }
+
+    // ------------------------------------------------------------------ Link / Download / Open in other app
+    void showLink() {
+        String url = cur().url;
+        TextView t = new TextView(this);
+        t.setText(url); t.setTextIsSelectable(true); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        t.setPadding(dp(24), dp(12), dp(24), dp(4));
+        new AlertDialog.Builder(this).setTitle("Stream link").setView(t)
+                .setPositiveButton("Copy", (d, w) -> {
+                    ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    cm.setPrimaryClip(ClipData.newPlainText("Stream link", url));
+                    osd("✓ Link copied");
+                })
+                .setNeutralButton("Share", (d, w) -> {
+                    Intent i = new Intent(Intent.ACTION_SEND); i.setType("text/plain"); i.putExtra(Intent.EXTRA_TEXT, url);
+                    startActivity(Intent.createChooser(i, "Share link"));
+                })
+                .setNegativeButton("Close", null).show();
+    }
+
+    void askDownload() {
+        Item it = cur();
+        new AlertDialog.Builder(this).setTitle("Download")
+                .setMessage("\"" + it.name + "\" will be saved in Downloads/AlnurIPTV.\n\nYour IPTV account allows only 1 connection, so playback stops while the file downloads. You can watch it offline later from the Files app.")
+                .setPositiveButton("Download", (d, w) -> startDownload(it))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    void startDownload(Item it) {
+        try {
+            savePos();
+            try { mp.stop(); } catch (Exception ignored) { }
+            stoppedForOther = true;
+            String path = Uri.parse(it.url).getLastPathSegment();
+            String ext = path != null && path.lastIndexOf('.') > 0 ? path.substring(path.lastIndexOf('.')) : ".mp4";
+            if (ext.length() > 6) ext = ".mp4";
+            String safe = it.name.replaceAll("[\\\\/:*?\"<>|]+", " ").trim();
+            if (safe.isEmpty()) safe = "video";
+            if (safe.length() > 80) safe = safe.substring(0, 80).trim();
+            DownloadManager.Request r = new DownloadManager.Request(Uri.parse(it.url));
+            r.addRequestHeader("User-Agent", ua);
+            r.setTitle(it.name);
+            r.setDescription("Alnur IPTV");
+            r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "AlnurIPTV/" + safe + ext);
+            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            dm.enqueue(r);
+            Toast.makeText(this, "Download started – see the notification bar", Toast.LENGTH_LONG).show();
+            setPlayIcon(false);
+            showMsg("⬇ Downloading \"" + it.name + "\".\nProgress is in the notification bar.\nTap here to stop waiting and play again.");
+        } catch (Exception e) {
+            showMsg("Download could not start:\n" + e.getMessage());
+        }
+    }
+
+    void openInOtherApp() {
+        Item it = cur();
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(Uri.parse(it.url), "video/*");
+            i.putExtra("title", it.name);
+            savePos();
+            try { mp.stop(); } catch (Exception ignored) { } // free the 1 allowed connection for the other app
+            stoppedForOther = true;
+            setPlayIcon(false);
+            startActivity(Intent.createChooser(i, "Open with"));
+        } catch (Exception e) {
+            toast("No video app found");
+        }
+    }
+
     final Runnable hideCtl = this::hideControls;
     void showControls() {
         controls.setVisibility(View.VISIBLE); controlsShown = true;
+        syncVolume();
         h.removeCallbacks(hideCtl);
         h.postDelayed(hideCtl, 4500);
     }
@@ -540,6 +768,8 @@ public class PlayerActivity extends Activity {
                 if (isLive()) { zap(-1); return true; } break;
             case KeyEvent.KEYCODE_DPAD_LEFT: case KeyEvent.KEYCODE_MEDIA_REWIND: seekBy(-10); return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: seekBy(10); return true;
+            case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN:
+                h.postDelayed(this::syncVolume, 150); break;
             case KeyEvent.KEYCODE_SPACE: case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE: case KeyEvent.KEYCODE_DPAD_CENTER: togglePlay(); return true;
             default: break;
         }
@@ -585,7 +815,8 @@ public class PlayerActivity extends Activity {
     @Override
     protected void onRestart() {
         super.onRestart();
-        if (mp != null && isLive()) start(cur().url, 0);
+        if (mp != null && isLive() && !stoppedForOther) start(cur().url, 0);
+        syncVolume();
     }
 
     @Override
