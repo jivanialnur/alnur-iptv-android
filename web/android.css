@@ -51,3 +51,61 @@
 .snd-sec input[type=range] { width: 100%; accent-color: var(--accent); }
 .snd-sec .snd-warn { color: #d97706; font-weight: 600; }
 .snd-sec .snd-warn.hidden { display: none; }
+
+/* ---- iOS-style "liquid glass" look (tablet only). Speed: real blur only on the few big panels that sit still
+   (rail, category list, top bar, pop-ups) – cards and tiles are just see-through, so scrolling stays fast. ---- */
+:root{ --accent:#3d5afe; }
+html{ background:
+    radial-gradient(40% 50% at 12% 18%, rgba(120,170,255,.75), transparent 70%),
+    radial-gradient(35% 45% at 88% 10%, rgba(255,150,200,.65), transparent 70%),
+    radial-gradient(45% 50% at 72% 88%, rgba(150,120,255,.60), transparent 70%),
+    radial-gradient(35% 40% at 22% 92%, rgba(90,220,210,.55), transparent 70%),
+    linear-gradient(160deg,#eef3ff,#f7efff) !important; }
+body{ background: transparent !important; }
+.screen, .main, .dash, .content, .list, .grid-wrap, .main-head, .grid, #browse { background:transparent !important; }
+/* glass surfaces */
+.rail, .side, .topbar2 {
+  background: rgba(255,255,255,.42) !important;
+  backdrop-filter: blur(28px) saturate(180%); -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border-color: rgba(255,255,255,.65) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+}
+.rail{ margin:10px 0 10px 10px; border-radius:26px; border:1px solid rgba(255,255,255,.7) !important; height:calc(100vh - 20px); }
+.side{ margin:10px; border-radius:26px; border:1px solid rgba(255,255,255,.7) !important; height:calc(100vh - 20px); }
+.main{ padding:10px 10px 0 0; }
+.topbar2{ border-radius:22px; border:1px solid rgba(255,255,255,.7) !important; }
+.rail-btn.active{ background: rgba(255,255,255,.75); box-shadow: 0 4px 14px rgba(61,90,254,.18), inset 0 1px 0 #fff; }
+.rail-btn.active::before{ display:none; }
+.pl-select, .searchbox{ background: rgba(255,255,255,.55) !important; border:1px solid rgba(255,255,255,.8) !important; box-shadow: inset 0 1px 0 #fff; }
+.searchbox{ border-radius:999px; }
+.cat.active{ background: rgba(255,255,255,.8); box-shadow: 0 4px 14px rgba(61,90,254,.15), inset 0 1px 0 #fff; }
+.cnt{ background: rgba(255,255,255,.6) !important; }
+.cat.active .cnt{ background: var(--accent) !important; }
+/* tiles: tinted glass with a bright rim */
+.dtile{ border:1px solid rgba(255,255,255,.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 0 rgba(255,255,255,.15), 0 14px 34px rgba(40,50,120,.22); }
+.dtile::after{ content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background: linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 45%); }
+.dtile.live{ background: linear-gradient(135deg, rgba(41,182,246,.72), rgba(61,90,254,.78)); }
+.dtile.movie{ background: linear-gradient(135deg, rgba(255,138,101,.74), rgba(233,30,99,.76)); }
+.dtile.series{ background: linear-gradient(135deg, rgba(179,136,255,.74), rgba(94,53,177,.78)); }
+/* cards */
+.ccard, .poster{ background: rgba(255,255,255,.55) !important; border:1px solid rgba(255,255,255,.75) !important;
+  box-shadow: inset 0 1px 0 #fff, 0 8px 22px rgba(40,50,120,.10) !important; border-radius:18px !important; }
+.poster .t{ background: transparent !important; }
+.dlmenu, .modal-body{ background: rgba(255,255,255,.72) !important; backdrop-filter: blur(30px) saturate(180%); border:1px solid rgba(255,255,255,.8); }
+
+/* dark mode (🌙): same glass, night colours */
+body.dark{ }
+html:has(body.dark){ background:
+    radial-gradient(40% 50% at 12% 18%, rgba(60,90,200,.55), transparent 70%),
+    radial-gradient(35% 45% at 88% 10%, rgba(160,60,140,.45), transparent 70%),
+    radial-gradient(45% 50% at 72% 88%, rgba(90,60,200,.45), transparent 70%),
+    radial-gradient(35% 40% at 22% 92%, rgba(20,140,140,.40), transparent 70%),
+    linear-gradient(160deg,#0b1020,#160d24) !important; }
+body.dark .rail, body.dark .side, body.dark .topbar2 { background: rgba(20,26,44,.45) !important; border-color: rgba(255,255,255,.12) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.12); }
+body.dark .rail-btn.active, body.dark .cat.active { background: rgba(255,255,255,.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); }
+body.dark .pl-select, body.dark .searchbox { background: rgba(255,255,255,.08) !important; border-color: rgba(255,255,255,.14) !important; box-shadow: none; }
+body.dark .cnt { background: rgba(255,255,255,.12) !important; }
+body.dark .ccard, body.dark .poster { background: rgba(30,38,62,.55) !important; border-color: rgba(255,255,255,.10) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.25) !important; }
+body.dark .dlmenu, body.dark .modal-body { background: rgba(22,28,46,.78) !important; border-color: rgba(255,255,255,.12); }

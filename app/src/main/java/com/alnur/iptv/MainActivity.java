@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        inst = this;
         WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#F3F5FA"));
@@ -220,14 +221,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    static MainActivity inst;
+
+    /** hand the player's result (watch progress, "go to channel 123") to the web UI – from onActivityResult, onResume, or the player's onDestroy */
+    static void deliverPlayerResult() {
+        MainActivity m = inst;
+        if (m == null) return;
+        m.runOnUiThread(() -> {
+            String r = PlayerActivity.result;
+            PlayerActivity.result = null;
+            if (r != null && m.web != null) m.web.evaluateJavascript("window.__onPlayerResult && window.__onPlayerResult(" + JSONObject.quote(r) + ")", null);
+        });
+    }
+
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req == REQ_PLAY) {
-            String r = PlayerActivity.result;
-            PlayerActivity.result = null;
-            if (r != null) js("window.__onPlayerResult && window.__onPlayerResult(" + JSONObject.quote(r) + ")");
-        }
+        if (req == REQ_PLAY) deliverPlayerResult();
     }
 
     @Override
@@ -238,5 +248,6 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onPause() { super.onPause(); web.onPause(); }
-    @Override protected void onResume() { super.onResume(); web.onResume(); }
+    @Override protected void onResume() { super.onResume(); web.onResume(); deliverPlayerResult(); }
+    @Override protected void onDestroy() { if (inst == this) inst = null; super.onDestroy(); }
 }

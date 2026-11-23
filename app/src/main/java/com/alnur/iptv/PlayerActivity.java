@@ -18,6 +18,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -67,7 +68,11 @@ public class PlayerActivity extends Activity {
     final Handler h = new Handler(Looper.getMainLooper());
 
     FrameLayout root, controls;
-    TextView title, subtitle, curTime, durTime, osd, msg, liveBadge;
+    TextView title, subtitle, curTime, durTime, osd, msg, liveBadge, liveBadge2;
+    LinearLayout row1;
+    View aspectBtn, panelView;
+    static PlayerActivity current; // the one playing now (a new channel closes the old one, also when it is minimised)
+    boolean pipActive, stoppedNow;
     ImageView playBtn, prevBtn, nextBtn, backBtn, numBtn, muteBtn;
     View rwBtn, ffBtn, linkBtn, dlBtn, openBtn;
     LinearLayout bottomBar;
@@ -76,7 +81,9 @@ public class PlayerActivity extends Activity {
     final Blur blur = new Blur();
     int audioSession;
     Sound sound;
-    GlassView soundPanel;
+    GlassView soundPanel;      // (old 🔊 panel – removed, kept null)
+    int boost = 100;           // 100–200: extra volume above the tablet's maximum (VLC amplifies)
+    boolean autoLevelOn, warned150, capBar;
     SeekBar boostSeek;
     TextView boostVal, boostWarn, soundNote;
     android.widget.Switch autoSw;   // blurred video copy for the glass panels
@@ -96,24 +103,15 @@ public class PlayerActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         parse();
         if (items.isEmpty()) { finish(); return; }
+        if (current != null && current != this) { try { current.finishWithResult(); } catch (Exception ignored) { } } // old (maybe minimised) player frees the connection
+        current = this;
         buildUi();
         hideSystemBars();
-        ArrayList<String> opts = new ArrayList<>();
-        opts.add("--http-reconnect");
-        opts.add("--deinterlace=-1");
-        opts.add("--deinterlace-mode=yadif");
-        opts.add("--audio-time-stretch");
-        // stats stay ON: the grey "buffered" part of the seek bar is worked out from them
-        // own audio session: Android's sound engine (volume boost / auto-level / limiter) is attached to it
         audioSession = audio.generateAudioSessionId();
-        opts.add("--aout=android_audiotrack");
-        opts.add("--audiotrack-session-id=" + audioSession);
-        vlc = new LibVLC(this, opts);
         sound = new Sound(audioSession);
-        if (sound.open()) sound.set(Sound.boost(this), Sound.auto(this), true);
-        mp = new MediaPlayer(vlc);
-        mp.attachViews(videoLayout, null, true, true); // TextureView: lets the glass panels blur the picture behind them
-        mp.setEventListener(this::onVlcEvent);
+        sound.open();                               // limiter on the tablet's sound output (stops cracking when boosted)
+        boost = Sound.boost(this);
+        createEngine();
         playIndex(index, true);
         h.post(ticker);
         h.post(glassTick);
@@ -137,6 +135,47 @@ public class PlayerActivity extends Activity {
         } catch (Exception ignored) { }
     }
 
+    /** VLC engine. Auto-level = VLC's volume normaliser + a gentle compressor (these are fixed when the engine starts). */
+    void createEngine() {
+        ArrayList<String> opts = new ArrayList<>();
+        opts.add("--http-reconnect");
+        opts.add("--deinterlace=-1");
+        opts.add("--deinterlace-mode=yadif");
+        opts.add("--audio-time-stretch");
+        // stats stay ON: the grey "buffered" part of the seek bar is worked out from them
+        // own audio session: Android's limiter is attached to it (see Sound)
+        opts.add("--aout=android_audiotrack");
+        opts.add("--audiotrack-session-id=" + audioSession);
+        autoLevelOn = Sound.auto(this);
+        if (autoLevelOn) {
+            opts.add("--audio-filter=normvol:compressor");
+            opts.add("--norm-buff-size=20");      // looks at the last ~0.5 s
+            opts.add("--norm-max-level=1.6");     // loud parts (ads) are pulled down to this
+            opts.add("--compressor-rms-peak=0.0"); // react to loudness, not single peaks
+            opts.add("--compressor-attack=50");
+            opts.add("--compressor-release=800"); // slow: no pumping / sudden jumps
+            opts.add("--compressor-threshold=-24");
+            opts.add("--compressor-ratio=3");
+            opts.add("--compressor-knee=6");
+            opts.add("--compressor-makeup-gain=7"); // quiet channels come up
+        }
+        vlc = new LibVLC(this, opts);
+        mp = new MediaPlayer(vlc);
+        mp.attachViews(videoLayout, null, true, true); // TextureView: lets the glass panels blur the picture behind them
+        mp.setEventListener(this::onVlcEvent);
+    }
+
+    /** switch auto-level while watching: new engine, continue where we were */
+    void restartEngine() {
+        long pos = isLive() ? 0 : Math.max(0, mp.getTime());
+        try { mp.setEventListener(null); mp.stop(); mp.detachViews(); mp.release(); } catch (Exception ignored) { }
+        try { vlc.release(); } catch (Exception ignored) { }
+        createEngine();
+        blur.texture = null;
+        retries = 0;
+        h.postDelayed(() -> start(cur().url, pos), 700); // the server needs a moment to free the single connection
+    }
+
     Item cur() { return items.get(index); }
     boolean isLive() { String k = cur().kind; return "live".equals(k); }
 
@@ -152,7 +191,10 @@ public class PlayerActivity extends Activity {
         rwBtn.setVisibility(live ? View.GONE : View.VISIBLE);
         ffBtn.setVisibility(live ? View.GONE : View.VISIBLE);
         seek.setVisibility(live ? View.INVISIBLE : View.VISIBLE);
-        liveBadge.setVisibility(live ? View.VISIBLE : View.GONE);
+        liveBadge.setVisibility(View.GONE);
+        liveBadge2.setVisibility(live ? View.VISIBLE : View.GONE);
+        row1.setVisibility(live ? View.GONE : View.VISIBLE);           // live: no empty seek row – a slim bar
+        bottomBar.setPadding(dp(18), dp(live ? 3 : 6), dp(18), dp(3));
         durTime.setVisibility(live ? View.GONE : View.VISIBLE);
         curTime.setVisibility(live ? View.GONE : View.VISIBLE);
         numBtn.setVisibility(live ? View.VISIBLE : View.GONE);
@@ -187,6 +229,7 @@ public class PlayerActivity extends Activity {
                 spinner.setVisibility(e.getBuffering() < 100f ? View.VISIBLE : View.GONE);
                 break;
             case MediaPlayer.Event.Playing:
+                mp.setVolume(boost);
                 spinner.setVisibility(View.GONE);
                 setPlayIcon(true);
                 msgBox.setVisibility(View.GONE);
@@ -373,8 +416,9 @@ public class PlayerActivity extends Activity {
         finish();
     }
 
-    // ------------------------------------------------------------------ gestures: right half volume, left half brightness
-    float downX, downY, startVal; boolean swiping; int swipeSide;
+    // ------------------------------------------------------------------ gestures (like YouTube): left third = brightness, right third = volume,
+    // middle: swipe DOWN = minimise to a small floating window (picture-in-picture); in that window drag it to ✕ to close
+    float downX, downY, startVal; boolean swiping, capAt150; int swipeSide;
     GestureDetector gd;
 
     boolean handleTouch(MotionEvent ev) {
@@ -383,20 +427,26 @@ public class PlayerActivity extends Activity {
         switch (ev.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = ev.getX(); downY = ev.getY(); swiping = false;
-                swipeSide = downX > w / 2f ? 1 : 0;
-                startVal = swipeSide == 1 ? audio.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC) : currentBrightness();
+                swipeSide = downX > w * 2 / 3f ? 1 : downX < w / 3f ? 0 : 2;
+                startVal = swipeSide == 1 ? level() / 100f : currentBrightness();
+                capAt150 = level() < 150; // one swipe stops at 150 %; swipe again to go further
                 return true;
             case MotionEvent.ACTION_MOVE:
                 float dy = downY - ev.getY();
                 if (!swiping && Math.abs(dy) > 24 * density && Math.abs(dy) > Math.abs(ev.getX() - downX)) swiping = true;
+                if (swiping && swipeSide == 2) {
+                    if (-dy > 40 * density) osd("⬇ Release to minimise");
+                    return true;
+                }
                 if (swiping) {
-                    float v = Math.max(0f, Math.min(1f, startVal + dy / (hgt * 0.6f)));
                     if (swipeSide == 1) {
-                        int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-                        audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(v * max), 0);
-                        syncVolume();
-                        osd((Math.round(v * max) == 0 ? "🔇 " : "🔊 ") + Math.round(v * 100) + "%");
+                        float v = Math.max(0f, Math.min(2f, startVal + dy / (hgt * 0.6f)));
+                        int lvl = Math.round(v * 100);
+                        if (capAt150 && lvl > 150) lvl = 150;
+                        setLevel(lvl);
+                        if (capAt150 && lvl == 150) osd(WARN_STOP, 2500); else volOsd(lvl);
                     } else {
+                        float v = Math.max(0f, Math.min(1f, startVal + dy / (hgt * 0.6f)));
                         WindowManager.LayoutParams lp = getWindow().getAttributes();
                         lp.screenBrightness = Math.max(0.02f, v);
                         getWindow().setAttributes(lp);
@@ -404,8 +454,67 @@ public class PlayerActivity extends Activity {
                     }
                 }
                 return true;
+            case MotionEvent.ACTION_UP:
+                if (swiping && swipeSide == 2 && ev.getY() - downY > Math.max(120 * density, hgt * 0.18f) && !minimise()) toast("Minimise is not available on this tablet");
+                swiping = false;
+                return true;
             default:
                 return true;
+        }
+    }
+
+    // ------------------------------------------------------------------ minimise (picture-in-picture)
+    boolean minimise() {
+        if (Build.VERSION.SDK_INT < 26 || pipActive) return false;
+        try {
+            int vw = 16, vh = 9;
+            try { org.videolan.libvlc.interfaces.IMedia.VideoTrack vt = mp.getCurrentVideoTrack(); if (vt != null && vt.width > 0 && vt.height > 0) { vw = vt.width; vh = vt.height; } } catch (Throwable ignored) { }
+            float r = vw / (float) vh;
+            if (r > 2.39f) { vw = 239; vh = 100; } else if (r < 0.42f) { vw = 42; vh = 100; } // Android's allowed range
+            android.app.PictureInPictureParams.Builder b = new android.app.PictureInPictureParams.Builder().setAspectRatio(new android.util.Rational(vw, vh));
+            if (Build.VERSION.SDK_INT >= 31) b.setSeamlessResizeEnabled(true);
+            closeSoundPanel();
+            hideControls();
+            return enterPictureInPictureMode(b.build());
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPip, android.content.res.Configuration cfg) {
+        super.onPictureInPictureModeChanged(inPip, cfg);
+        pipActive = inPip;
+        if (inPip) {
+            controls.setVisibility(View.GONE); controlsShown = false;
+            osdBox.setVisibility(View.GONE); msgBox.setVisibility(View.GONE);
+            if (soundPanel != null) soundPanel.setVisibility(View.GONE);
+        } else if (stoppedNow) {
+            finishWithResult();               // the small window was closed (dragged to ✕)
+        } else {
+            showControls();                   // tapped "full screen" in the small window
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration c) {
+        super.onConfigurationChanged(c);
+        root.post(this::adaptLayout);
+    }
+
+    /** upright tablet: tighter bar, hide what does not fit (aspect + volume slider stay in ⚙ / swipe) */
+    void adaptLayout() {
+        if (root == null || panelView == null) return;
+        boolean portrait = root.getHeight() > root.getWidth();
+        FrameLayout.LayoutParams bl = (FrameLayout.LayoutParams) panelView.getLayoutParams();
+        bl.leftMargin = bl.rightMargin = dp(portrait ? 10 : 60);
+        panelView.setLayoutParams(bl);
+        vol.setVisibility(portrait ? View.GONE : View.VISIBLE);
+        aspectBtn.setVisibility(portrait ? View.GONE : View.VISIBLE);
+        if (soundPanel != null) {
+            FrameLayout.LayoutParams pl = (FrameLayout.LayoutParams) soundPanel.getLayoutParams();
+            pl.width = dp(portrait ? 330 : 360);
+            soundPanel.setLayoutParams(pl);
         }
     }
 
@@ -548,7 +657,7 @@ public class PlayerActivity extends Activity {
         bottomBar.setClickable(true); // taps on the panel don't hide the controls
 
         // row 1: time  ━━━━━●───  duration / LIVE
-        LinearLayout row1 = new LinearLayout(this);
+        row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
         row1.setGravity(Gravity.CENTER_VERTICAL);
         curTime = new TextView(this); curTime.setTextColor(Color.WHITE); curTime.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14); curTime.setTypeface(Typeface.MONOSPACE);
@@ -557,7 +666,7 @@ public class PlayerActivity extends Activity {
         seek = new SeekBar(this);
         tintSeek(seek, Color.rgb(229, 57, 53));
         row1.addView(curTime, lpm(0, 8));
-        row1.addView(seek, new LinearLayout.LayoutParams(0, dp(36), 1f));
+        row1.addView(seek, new LinearLayout.LayoutParams(0, dp(30), 1f));
         row1.addView(liveBadge, lpm(8, 0));
         row1.addView(durTime, lpm(8, 0));
         bottomBar.addView(row1, new LinearLayout.LayoutParams(-1, -2));
@@ -567,9 +676,11 @@ public class PlayerActivity extends Activity {
         LinearLayout left = new LinearLayout(this); left.setGravity(Gravity.CENTER_VERTICAL);
         muteBtn = iconBtn(R.drawable.ic_vol, 44, 24, "Mute");
         vol = new SeekBar(this); tintSeek(vol, Color.WHITE);
-        vol.setMax(audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+        vol.setMax(200); // 0–100 % tablet volume, 100–200 % boost
         left.addView(muteBtn, sized(muteBtn, 0, 2));
         left.addView(vol, new LinearLayout.LayoutParams(dp(140), dp(36)));
+        liveBadge2 = new TextView(this); liveBadge2.setText("● LIVE"); liveBadge2.setTextColor(Color.rgb(255, 80, 80)); liveBadge2.setTypeface(Typeface.DEFAULT_BOLD); liveBadge2.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        left.addView(liveBadge2, lpm(10, 0));
         row2.addView(left, new FrameLayout.LayoutParams(-2, -2, Gravity.START | Gravity.CENTER_VERTICAL));
 
         LinearLayout mid = new LinearLayout(this); mid.setGravity(Gravity.CENTER_VERTICAL);
@@ -585,18 +696,19 @@ public class PlayerActivity extends Activity {
         ImageView subs = iconBtn(R.drawable.ic_subs, 46, 24, "Subtitles");
         ImageView aud = iconBtn(R.drawable.ic_audio, 46, 24, "Audio track");
         ImageView set = iconBtn(R.drawable.ic_settings, 46, 24, "Settings");
-        ImageView soundBtn = iconBtn(R.drawable.ic_sound, 46, 24, "Sound");
-        View[] row = {aspect, prevBtn, rwBtn, playBtn, ffBtn, nextBtn, soundBtn, subs, aud, set};
+        View[] row = {aspect, prevBtn, rwBtn, playBtn, ffBtn, nextBtn, subs, aud, set};
         for (View v : row) mid.addView(v, sized(v, 6, 6));
         row2.addView(mid, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
 
         numBtn = iconBtn(R.drawable.ic_dialpad, 46, 22, "Channel number");
         row2.addView(numBtn, new FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END | Gravity.CENTER_VERTICAL));
-        bottomBar.addView(row2, new LinearLayout.LayoutParams(-1, dp(64)));
+        bottomBar.addView(row2, new LinearLayout.LayoutParams(-1, dp(58)));
+        aspectBtn = aspect;
 
         FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         bl.leftMargin = dp(60); bl.rightMargin = dp(60); bl.bottomMargin = dp(22);
-        GlassView panel = new GlassView(this, blur, dp(26));
+        GlassView panel = new GlassView(this, blur, dp(24));
+        panelView = panel;
         panel.addView(bottomBar, new FrameLayout.LayoutParams(-1, -2));
         controls.addView(panel, bl);
 
@@ -615,9 +727,10 @@ public class PlayerActivity extends Activity {
         root.addView(msgBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
 
         setContentView(root);
+        root.post(this::adaptLayout);
 
         // ---- actions
-        backBtn.setOnClickListener(v -> finishWithResult());
+        backBtn.setOnClickListener(v -> backOrMinimise());
         playBtn.setOnClickListener(v -> togglePlay());
         rwBtn.setOnClickListener(v -> seekBy(-30));
         ffBtn.setOnClickListener(v -> seekBy(30));
@@ -628,7 +741,6 @@ public class PlayerActivity extends Activity {
         aspect.setOnClickListener(v -> cycleScale());
         set.setOnClickListener(v -> settingsMenu());
         numBtn.setOnClickListener(v -> numberPad());
-        soundBtn.setOnClickListener(v -> openSoundPanel());
         muteBtn.setOnClickListener(v -> toggleMute());
         linkBtn.setOnClickListener(v -> showLink());
         dlBtn.setOnClickListener(v -> askDownload());
@@ -642,10 +754,11 @@ public class PlayerActivity extends Activity {
         vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
                 if (!user) return;
-                audio.setStreamVolume(AudioManager.STREAM_MUSIC, p, 0);
-                updateMuteIcon();
+                if (capBar && p > 150) { p = 150; s.setProgress(150); osd(WARN_STOP.replace("ફરી ઉપર swipe કરો", "slider ફરી ખેંચો"), 2500); }
+                setLevel(p);
+                if (!(capBar && p == 150)) volOsd(p);
             }
-            @Override public void onStartTrackingTouch(SeekBar s) { h.removeCallbacks(hideCtl); }
+            @Override public void onStartTrackingTouch(SeekBar s) { h.removeCallbacks(hideCtl); capBar = level() < 150; }
             @Override public void onStopTrackingTouch(SeekBar s) { showControls(); }
         });
 
@@ -674,31 +787,78 @@ public class PlayerActivity extends Activity {
 
     void setPlayIcon(boolean playing) { playBtn.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play); }
 
-    // ------------------------------------------------------------------ volume
+    // ------------------------------------------------------------------ volume: 0–100 % = tablet volume, 100–200 % = extra boost
+    static final String WARN = "⚠ 150% થી વધારે: અવાજ ફાટી શકે અને કાન માટે નુકસાનકારક છે";
+    static final String WARN_STOP = "🔊 150%\n" + WARN + "\nવધારે કરવું હોય તો ફરી ઉપર swipe કરો";
+    int maxVol() { return audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC); }
+    int level() {
+        int sys = audio.getStreamVolume(AudioManager.STREAM_MUSIC), max = maxVol();
+        if (sys >= max && boost > 100) return boost;
+        return Math.round(sys * 100f / max);
+    }
+    void setLevel(int lvl) {
+        lvl = Math.max(0, Math.min(200, lvl));
+        int max = maxVol();
+        if (lvl <= 100) { audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(lvl * max / 100f), 0); setBoost(100); }
+        else { if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) < max) audio.setStreamVolume(AudioManager.STREAM_MUSIC, max, 0); setBoost(lvl); }
+        syncVolume();
+    }
+    void setBoost(int b) {
+        b = Math.max(100, Math.min(200, b));
+        if (b < 150) warned150 = false;
+        if (b == boost) return;
+        boost = b;
+        if (mp != null) mp.setVolume(boost);
+        Sound.save(this, boost, Sound.auto(this));
+    }
+    void volOsd(int lvl) {
+        if (lvl > 150) osd("🔊 " + lvl + "%\n" + WARN, 2000);
+        else osd((lvl == 0 ? "🔇 " : "🔊 ") + lvl + "%");
+    }
+    /** volume keys: at the tablet's maximum they keep going (boost), with a stop + warning at 150 % */
+    boolean volumeKey(boolean up) {
+        int max = maxVol(), sys = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
+        if (up) {
+            if (sys < max) return false;                       // normal: the tablet handles it
+            if (boost >= 200) { volOsd(200); return true; }
+            int nb = Math.min(200, boost + 10);
+            if (boost < 150 && nb >= 150) { setLevel(150); osd(WARN_STOP.replace("ફરી ઉપર swipe કરો", "ફરી + બટન દબાવો"), 2500); return true; } // stop at 150 once
+            setLevel(nb);
+            volOsd(nb);
+            return true;
+        } else {
+            if (boost <= 100) return false;
+            setLevel(boost - 10 <= 100 ? 100 : boost - 10);
+            volOsd(level());
+            return true;
+        }
+    }
     int volBeforeMute = -1;
     void toggleMute() {
-        int v = audio.getStreamVolume(AudioManager.STREAM_MUSIC);
-        if (v > 0) { volBeforeMute = v; audio.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0); osd("🔇 Mute"); }
-        else {
-            int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
-            int back = volBeforeMute > 0 ? volBeforeMute : Math.max(1, max / 2);
-            audio.setStreamVolume(AudioManager.STREAM_MUSIC, back, 0);
-            osd("🔊 " + Math.round(back * 100f / max) + "%");
-        }
-        syncVolume();
+        int l = level();
+        if (l > 0) { volBeforeMute = l; setLevel(0); osd("🔇 Mute"); }
+        else { int back = volBeforeMute > 0 ? Math.min(volBeforeMute, 100) : 50; setLevel(back); volOsd(back); }
         showControls();
     }
-    void syncVolume() { if (vol != null) vol.setProgress(audio.getStreamVolume(AudioManager.STREAM_MUSIC)); updateMuteIcon(); }
-    void updateMuteIcon() { if (muteBtn != null) muteBtn.setImageResource(audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0 ? R.drawable.ic_mute : R.drawable.ic_vol); }
+    void syncVolume() { if (vol != null) vol.setProgress(level()); updateMuteIcon(); }
+    void updateMuteIcon() { if (muteBtn != null) muteBtn.setImageResource(level() == 0 ? R.drawable.ic_mute : R.drawable.ic_vol); }
 
     // ------------------------------------------------------------------ settings: speed + aspect
     static final float[] SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f};
     void settingsMenu() {
-        String[] opts = isLive() ? new String[]{"Aspect ratio: " + SCALE_NAMES[scaleMode]}
-                : new String[]{"Speed: " + speedName(mp.getRate()), "Aspect ratio: " + SCALE_NAMES[scaleMode]};
+        String al = "Auto-level (same loudness on every channel): " + (Sound.auto(this) ? "ON" : "OFF");
+        String[] opts = isLive() ? new String[]{"Aspect ratio: " + SCALE_NAMES[scaleMode], al}
+                : new String[]{"Speed: " + speedName(mp.getRate()), "Aspect ratio: " + SCALE_NAMES[scaleMode], al};
         new AlertDialog.Builder(this).setTitle("Settings").setItems(opts, (d, w) -> {
-            if (!isLive() && w == 0) speedMenu(); else scaleMenu();
+            int k = isLive() ? w + 1 : w;
+            if (k == 0) speedMenu(); else if (k == 1) scaleMenu(); else toggleAutoLevel();
         }).show();
+    }
+    void toggleAutoLevel() {
+        boolean on = !Sound.auto(this);
+        Sound.save(this, boost, on);
+        osd("Auto-level " + (on ? "ON" : "OFF") + " …", 1500);
+        restartEngine();
     }
     static String speedName(float r) { return (Math.abs(r - 1f) < 0.01f ? "Normal" : (r == (int) r ? String.valueOf((int) r) : String.valueOf(r)) + "×"); }
     void speedMenu() {
@@ -772,128 +932,7 @@ public class PlayerActivity extends Activity {
         }
     }
 
-    // ------------------------------------------------------------------ 🔊 Sound panel (slides in from the right, video keeps playing)
-    void buildSoundPanel() {
-        soundPanel = new GlassView(this, blur, dp(24));
-        soundPanel.tint = Color.argb(120, 14, 14, 20);
-        soundPanel.setClickable(true); // touches on the panel don't reach the video
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(22), dp(16), dp(22), dp(20));
-        soundPanel.addView(col, new FrameLayout.LayoutParams(-1, -1));
-
-        LinearLayout head = new LinearLayout(this); head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView t = new TextView(this); t.setText("🔊  Sound"); t.setTextColor(Color.WHITE); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20); t.setTypeface(Typeface.DEFAULT_BOLD);
-        head.addView(t, new LinearLayout.LayoutParams(0, -2, 1f));
-        TextView x = new TextView(this); x.setText("✕"); x.setTextColor(Color.WHITE); x.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20); x.setGravity(Gravity.CENTER);
-        x.setBackground(ripple(null, true)); x.setClickable(true); x.setOnClickListener(v -> closeSoundPanel());
-        head.addView(x, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        col.addView(head);
-
-        // --- Volume boost
-        LinearLayout r1 = new LinearLayout(this); r1.setGravity(Gravity.CENTER_VERTICAL);
-        TextView l1 = label("Volume boost", 16, true);
-        r1.addView(l1, new LinearLayout.LayoutParams(0, -2, 1f));
-        boostVal = label("100%", 18, true);
-        r1.addView(boostVal);
-        LinearLayout.LayoutParams r1l = new LinearLayout.LayoutParams(-1, -2); r1l.topMargin = dp(18);
-        col.addView(r1, r1l);
-        boostSeek = new SeekBar(this);
-        boostSeek.setMax(100);
-        tintSeek(boostSeek, Color.rgb(64, 156, 255));
-        col.addView(boostSeek, new LinearLayout.LayoutParams(-1, dp(44)));
-        LinearLayout marks = new LinearLayout(this);
-        TextView m1 = label("100%", 12, false), m2 = label("150%", 12, false), m3 = label("200%", 12, false);
-        m2.setGravity(Gravity.CENTER); m3.setGravity(Gravity.END);
-        marks.addView(m1, new LinearLayout.LayoutParams(0, -2, 1f)); marks.addView(m2, new LinearLayout.LayoutParams(0, -2, 1f)); marks.addView(m3, new LinearLayout.LayoutParams(0, -2, 1f));
-        col.addView(marks);
-        boostWarn = label("⚠ 150% થી વધારે કરવાથી અવાજ ફાટી શકે", 14, true);
-        boostWarn.setTextColor(Color.rgb(255, 204, 80));
-        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(-1, -2); wl.topMargin = dp(8);
-        col.addView(boostWarn, wl);
-        TextView h1 = label("Louder than the tablet's maximum. A limiter is always on to stop the sound from cracking.", 13, false);
-        LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(-1, -2); hl.topMargin = dp(6);
-        col.addView(h1, hl);
-
-        View line = new View(this); line.setBackgroundColor(Color.argb(50, 255, 255, 255));
-        LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(-1, Math.max(1, dp(1))); ll.topMargin = dp(18); ll.bottomMargin = dp(16);
-        col.addView(line, ll);
-
-        // --- Auto-level
-        LinearLayout r2 = new LinearLayout(this); r2.setGravity(Gravity.CENTER_VERTICAL);
-        r2.addView(label("Auto-level", 16, true), new LinearLayout.LayoutParams(0, -2, 1f));
-        autoSw = new android.widget.Switch(this);
-        autoSw.setThumbTintList(ColorStateList.valueOf(Color.WHITE));
-        autoSw.setTrackTintList(new ColorStateList(new int[][]{{android.R.attr.state_checked}, {}}, new int[]{Color.rgb(52, 199, 89), Color.argb(90, 255, 255, 255)}));
-        r2.addView(autoSw);
-        col.addView(r2);
-        TextView h2 = label("Keeps every channel at about the same loudness – switching Star Gold → Star Plus sounds similar and loud ads are tamed. Changes happen slowly, without jumps.", 13, false);
-        col.addView(h2, new LinearLayout.LayoutParams(-1, -2));
-
-        soundNote = label("", 13, true);
-        soundNote.setTextColor(Color.rgb(255, 160, 120));
-        LinearLayout.LayoutParams nl = new LinearLayout.LayoutParams(-1, -2); nl.topMargin = dp(10);
-        col.addView(soundNote, nl);
-
-        View space = new View(this);
-        col.addView(space, new LinearLayout.LayoutParams(-1, 0, 1f));
-
-        TextView reset = label("↺  Reset to default", 15, true);
-        reset.setGravity(Gravity.CENTER);
-        GradientDrawable rb = new GradientDrawable(); rb.setCornerRadius(dp(14)); rb.setColor(Color.argb(45, 255, 255, 255)); rb.setStroke(Math.max(1, dp(1)), Color.argb(70, 255, 255, 255));
-        reset.setBackground(ripple(rb, false)); reset.setClickable(true);
-        col.addView(reset, new LinearLayout.LayoutParams(-1, dp(48)));
-
-        boostSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { showBoost(100 + p); if (user) applySound(); }
-            @Override public void onStartTrackingTouch(SeekBar s) { }
-            @Override public void onStopTrackingTouch(SeekBar s) { applySound(); }
-        });
-        autoSw.setOnCheckedChangeListener((b, on) -> applySound());
-        reset.setOnClickListener(v -> { boostSeek.setProgress(Sound.DEF_BOOST - 100); autoSw.setChecked(Sound.DEF_AUTO); applySound(); osd("Sound: default"); });
-
-        soundPanel.setVisibility(View.GONE);
-        FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(dp(360), -1, Gravity.END);
-        pl.topMargin = dp(18); pl.bottomMargin = dp(18); pl.rightMargin = dp(18);
-        root.addView(soundPanel, pl);
-    }
-
-    TextView label(String text, float sp, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(text); t.setTextColor(bold ? Color.WHITE : Color.argb(185, 255, 255, 255));
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        if (bold) t.setTypeface(Typeface.DEFAULT_BOLD);
-        return t;
-    }
-
-    void showBoost(int pct) { boostVal.setText(pct + "%"); boostWarn.setVisibility(pct > 150 ? View.VISIBLE : View.INVISIBLE); }
-
-    void applySound() {
-        int b = 100 + boostSeek.getProgress();
-        boolean a = autoSw.isChecked();
-        Sound.save(this, b, a);              // remembered for next time (also shown in Settings)
-        if (sound != null) sound.set(b, a, false);
-    }
-
-    void openSoundPanel() {
-        if (soundPanel == null) buildSoundPanel();
-        int b = Sound.boost(this);
-        boostSeek.setProgress(b - 100); showBoost(b);
-        autoSw.setOnCheckedChangeListener(null); autoSw.setChecked(Sound.auto(this)); autoSw.setOnCheckedChangeListener((bt, on) -> applySound());
-        boolean ok = sound != null && sound.dp != null;
-        boostSeek.setEnabled(ok); autoSw.setEnabled(ok);
-        soundNote.setText(ok ? "" : "This tablet can't do this (" + (sound != null && sound.error != null ? sound.error : "sound effects not available") + ").");
-        soundNote.setVisibility(ok ? View.GONE : View.VISIBLE);
-        hideControls();
-        soundPanel.setVisibility(View.VISIBLE);
-        soundPanel.setTranslationX(dp(380));
-        soundPanel.animate().translationX(0).setDuration(220).start();
-    }
-
-    void closeSoundPanel() {
-        if (soundPanel == null || soundPanel.getVisibility() != View.VISIBLE) return;
-        soundPanel.animate().translationX(dp(380)).setDuration(200).withEndAction(() -> soundPanel.setVisibility(View.GONE)).start();
-    }
+    void closeSoundPanel() { }
 
     final Runnable glassTick = new Runnable() {
         @Override public void run() {
@@ -917,7 +956,8 @@ public class PlayerActivity extends Activity {
     }
 
     final Runnable hideOsd = () -> osdBox.setVisibility(View.GONE);
-    void osd(String t) { osd.setText(t); osdBox.setVisibility(View.VISIBLE); h.removeCallbacks(hideOsd); h.postDelayed(hideOsd, 1000); }
+    void osd(String t) { osd(t, 1000); }
+    void osd(String t, int ms) { osd.setText(t); osdBox.setVisibility(View.VISIBLE); h.removeCallbacks(hideOsd); h.postDelayed(hideOsd, ms); }
     void toast(String t) { osd(t); }
 
     void hideSystemBars() {
@@ -944,7 +984,11 @@ public class PlayerActivity extends Activity {
                 if (isLive()) { zap(-1); return true; } break;
             case KeyEvent.KEYCODE_DPAD_LEFT: case KeyEvent.KEYCODE_MEDIA_REWIND: seekBy(-10); return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT: case KeyEvent.KEYCODE_MEDIA_FAST_FORWARD: seekBy(10); return true;
-            case KeyEvent.KEYCODE_VOLUME_UP: case KeyEvent.KEYCODE_VOLUME_DOWN:
+            case KeyEvent.KEYCODE_VOLUME_UP:
+                if (volumeKey(true)) return true;
+                h.postDelayed(this::syncVolume, 150); break;
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+                if (volumeKey(false)) return true;
                 h.postDelayed(this::syncVolume, 150); break;
             case KeyEvent.KEYCODE_SPACE: case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE: case KeyEvent.KEYCODE_DPAD_CENTER: togglePlay(); return true;
             default: break;
@@ -952,8 +996,12 @@ public class PlayerActivity extends Activity {
         return super.onKeyDown(code, e);
     }
 
-    @Override public void onBackPressed() {
-        if (soundPanel != null && soundPanel.getVisibility() == View.VISIBLE) { closeSoundPanel(); return; }
+    /** Back = small floating window (like YouTube); close it from there. Without picture-in-picture: close. */
+    @Override public void onBackPressed() { backOrMinimise(); }
+    void backOrMinimise() {
+        if (!pipActive && Build.VERSION.SDK_INT >= 26 && getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            if (minimise()) return;
+        }
         finishWithResult();
     }
 
@@ -982,18 +1030,22 @@ public class PlayerActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (mp != null && !isLive() && mp.isPlaying()) mp.pause();
+        boolean pip = Build.VERSION.SDK_INT >= 24 && isInPictureInPictureMode();
+        if (!pip && mp != null && !isLive() && mp.isPlaying()) mp.pause(); // keeps playing in the small window
     }
 
     @Override
     protected void onStop() {
         super.onStop();
+        stoppedNow = true;
+        if (pipActive) { finishWithResult(); return; } // small window closed
         if (mp != null && isLive()) mp.stop(); // free the server connection (only 1 allowed)
     }
 
     @Override
     protected void onRestart() {
         super.onRestart();
+        stoppedNow = false;
         if (mp != null && isLive() && !stoppedForOther) start(cur().url, 0);
         syncVolume();
     }
@@ -1003,6 +1055,8 @@ public class PlayerActivity extends Activity {
         super.onDestroy();
         h.removeCallbacksAndMessages(null);
         if (result == null && !items.isEmpty()) result = buildResult(null);
+        if (current == this) current = null;
+        MainActivity.deliverPlayerResult(); // also works when the player was minimised (own window/task)
         if (mp != null) {
             try { mp.stop(); mp.detachViews(); mp.release(); } catch (Exception ignored) { }
             mp = null;

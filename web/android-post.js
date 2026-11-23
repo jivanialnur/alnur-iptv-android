@@ -119,11 +119,11 @@
     const box = document.createElement('div');
     box.className = 'set-sec snd-sec';
     box.innerHTML = '<b>🔊 Sound</b>' +
-      '<div class="snd-row"><span>Volume boost</span><b id="snd-val">100%</b></div>' +
+      '<div class="snd-row"><span>Extra volume (above 100%)</span><b id="snd-val">100%</b></div>' +
       '<input type="range" id="snd-boost" min="100" max="200" step="5" value="100">' +
-      '<small class="snd-warn hidden" id="snd-warn">⚠ 150% થી વધારે કરવાથી અવાજ ફાટી શકે</small>' +
+      '<small class="snd-warn hidden" id="snd-warn">⚠ 150% થી વધારે: અવાજ ફાટી શકે અને કાન માટે નુકસાનકારક છે</small>' +
       '<label class="row"><input type="checkbox" id="snd-auto"> Auto-level – every channel about equally loud, loud ads tamed (changes slowly)</label>' +
-      '<small class="muted" id="snd-note">A limiter is always on, so the sound does not crack. Also in the player: 🔊 button.</small>' +
+      '<small class="muted" id="snd-note">In the player: swipe up on the right side (or the + volume button) past 100% – it stops at 150% with a warning, swipe again for up to 200%. Auto-level starts with the next video.</small>' +
       '<div class="row-btns"><button class="btn small ghost" id="snd-reset">↺ Reset to default</button></div>';
     anchor.insertAdjacentElement('afterend', box);
     const $s = (id) => box.querySelector('#' + id);

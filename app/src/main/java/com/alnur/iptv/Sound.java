@@ -8,9 +8,9 @@ import android.os.Handler;
 import android.os.Looper;
 
 /**
- * Volume boost (100–200 %) + Auto-level, done by Android's own audio engine (DynamicsProcessing, Android 9+)
- * on VLC's audio session. Chain: input gain (boost) → 1-band compressor (auto-level) → limiter (no clipping, always on).
- * The phone/tablet volume buttons keep working as before – this sits on top of them.
+ * Sound settings (boost 100–200 %, auto-level on/off) + Android's limiter on VLC's audio session.
+ * Boost = VLC volume above 100 (PlayerActivity.setBoost); auto-level = VLC normvol+compressor (PlayerActivity.createEngine);
+ * the limiter here (DynamicsProcessing, Android 9+) keeps boosted sound from cracking.
  */
 final class Sound {
     static final String PREF = "sound";
@@ -30,11 +30,6 @@ final class Sound {
     final int session;
     DynamicsProcessing dp;
     String error;
-    final Handler h = new Handler(Looper.getMainLooper());
-    // current (ramped) values
-    float gainDb = 0, ratio = 1, threshold = 0, post = 0;
-    // targets
-    float tGainDb = 0, tRatio = 1, tThreshold = 0, tPost = 0;
 
     Sound(int session) { this.session = session; }
 
@@ -45,7 +40,7 @@ final class Sound {
             DynamicsProcessing.Config cfg = new DynamicsProcessing.Config.Builder(
                     DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2,
                     false, 0,      // pre-EQ
-                    true, 1,       // 1-band compressor = auto-level
+                    false, 0,      // (auto-level is done by VLC's normaliser now)
                     false, 0,      // post-EQ
                     true)          // limiter
                     .build();
@@ -60,50 +55,18 @@ final class Sound {
         }
     }
 
-    /** set targets from the settings; values glide there in ~1.5 s (no sudden jump in loudness) */
-    void set(int boostPct, boolean autoLevel, boolean instant) {
-        tGainDb = (float) (20 * Math.log10(clamp(boostPct) / 100.0));   // 100 % = 0 dB, 200 % = +6 dB
-        if (autoLevel) { tThreshold = -30f; tRatio = 4f; tPost = 9f; }   // squeeze loud parts (ads), lift quiet channels
-        else { tThreshold = 0f; tRatio = 1f; tPost = 0f; }               // compressor does nothing
-        if (instant) { gainDb = tGainDb; ratio = tRatio; threshold = tThreshold; post = tPost; applyNow(); }
-        else { h.removeCallbacks(step); h.post(step); }
-    }
-
-    final Runnable step = new Runnable() {
-        @Override public void run() {
-            float k = 0.12f; // per 50 ms → ~1.5 s glide
-            gainDb += (tGainDb - gainDb) * 0.35f; // the slider itself should feel quick
-            ratio += (tRatio - ratio) * k;
-            threshold += (tThreshold - threshold) * k;
-            post += (tPost - post) * k;
-            boolean done = Math.abs(tGainDb - gainDb) < 0.05f && Math.abs(tRatio - ratio) < 0.02f
-                    && Math.abs(tThreshold - threshold) < 0.1f && Math.abs(tPost - post) < 0.05f;
-            if (done) { gainDb = tGainDb; ratio = tRatio; threshold = tThreshold; post = tPost; }
-            applyNow();
-            if (!done) h.postDelayed(this, 50);
-        }
-    };
-
     void applyNow() {
         if (dp == null) return;
-        try { dp.setInputGainAllChannelsTo(gainDb); } catch (Throwable ignored) { }
         try {
-            // slow attack/release: the level moves gently, ads don't "jump"; noise gate keeps silence/hiss from being lifted
-            DynamicsProcessing.MbcBand band = new DynamicsProcessing.MbcBand(true, 24000f,
-                    60f /*attack ms*/, 1200f /*release ms*/, ratio, threshold, 8f /*knee dB*/,
-                    -70f /*noise gate dB*/, 1f /*expander*/, 0f /*pre gain*/, post);
-            dp.setMbcBandAllChannelsTo(0, band);
-        } catch (Throwable ignored) { }
-        try {
-            // brick-wall limiter just under full scale = clipping protection (always on)
+            // brick-wall limiter just under full scale = clipping protection (always on). VLC's boost (up to 200 %)
+            // reaches it as floating-point audio, so loud peaks are pressed down instead of cracking.
             DynamicsProcessing.Limiter lim = new DynamicsProcessing.Limiter(true, true, 0,
-                    1f /*attack ms*/, 80f /*release ms*/, 12f /*ratio*/, -1.5f /*threshold dB*/, 0f);
+                    1f /*attack ms*/, 60f /*release ms*/, 15f /*ratio*/, -1.0f /*threshold dB*/, 0f);
             dp.setLimiterAllChannelsTo(lim);
         } catch (Throwable ignored) { }
     }
 
     void close() {
-        h.removeCallbacks(step);
         if (dp != null) { try { dp.setEnabled(false); dp.release(); } catch (Throwable ignored) { } dp = null; }
     }
 }

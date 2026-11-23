@@ -57,3 +57,13 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
   the right (video keeps playing). Web Settings: injected "🔊 Sound" section (android-post.js, bridge soundGet/soundSet).
   Removed `--no-stats` (it made the buffered-bar estimate dead). libVLC also has compressor/normvol/gain filters but they can't be
   changed live, hence DynamicsProcessing. Not yet tested on the tablet.
+- 1.5.0 (user: "boost / auto-level did nothing, remove the 🔊 button"): 🔊 button + panel REMOVED. Volume is now one scale 0–200 %:
+  0–100 = tablet volume, 100–200 = VLC `mp.setVolume(boost)` (audiotrack aout turns >100 into gain). Right-side swipe, bar slider
+  (max 200) and the hardware + key stop at 150 % with a Gujarati warning; a new swipe / press goes on to 200 %. Boost saved (pref "sound").
+  Auto-level = VLC `--audio-filter=normvol:compressor` (norm-max-level 1.6, compressor −24 dB 3:1, attack 50, release 800, makeup 7),
+  fixed per engine → toggle in player ⚙ restarts the engine (`restartEngine`), or in web Settings (next video).
+  `Sound.java` now only = DynamicsProcessing limiter (−1 dB) on the session (clipping protection).
+  Player: compact bar (live = no seek row, ● LIVE beside volume), rotates (fullUser) with portrait layout (`adaptLayout`),
+  Back / ← = minimise to picture-in-picture (close it from the small window), swipe DOWN in the middle third = minimise too.
+  Result to the web goes via static `MainActivity.deliverPlayerResult()` (PiP runs in its own task). A new play closes the old player.
+  Home: iOS-style glass theme in web/android.css (blur only on rail/side/topbar/pop-ups for speed; cards just see-through), dark variant.
