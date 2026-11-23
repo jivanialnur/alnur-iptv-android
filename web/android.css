@@ -45,3 +45,9 @@
 .free-btn span { font-size: 18px; }
 .free-btn:active { border-color: var(--accent); background: var(--accent-soft); }
 .free-note { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+
+/* 🔊 Sound section in Settings */
+.snd-sec .snd-row { display: flex; justify-content: space-between; align-items: center; }
+.snd-sec input[type=range] { width: 100%; accent-color: var(--accent); }
+.snd-sec .snd-warn { color: #d97706; font-weight: 600; }
+.snd-sec .snd-warn.hidden { display: none; }

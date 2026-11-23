@@ -194,6 +194,12 @@ public class MainActivity extends Activity {
             });
             return true;
         }
+        // 🔊 sound settings (same values the player's Sound panel uses)
+        @JavascriptInterface public String soundGet() {
+            try { return new JSONObject().put("boost", Sound.boost(MainActivity.this)).put("auto", Sound.auto(MainActivity.this)).put("supported", Sound.supported()).toString(); }
+            catch (Exception e) { return "{\"boost\":100,\"auto\":false,\"supported\":true}"; }
+        }
+        @JavascriptInterface public void soundSet(int boost, boolean auto) { Sound.save(MainActivity.this, boost, auto); }
         // downloads (DownloadManager): web ⬇ menu
         @JavascriptInterface public String dlStart(String url, String name, String ua) {
             String[] err = new String[1];

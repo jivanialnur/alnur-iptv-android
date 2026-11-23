@@ -50,3 +50,10 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
   one tap adds + opens a legal free M3U (iptv-org gh-pages via raw.githubusercontent: Gujarati, Hindi, India, South Africa,
   Mozambique, News, All world; Free-TV/IPTV playlist.m3u8). Doesn't use the Xtream account. User asked for pirated paid-channel
   links too – declined; only legal free playlists. Sandbox can't reach the stream hosts, so playback is only tested on the tablet.
+- 1.4.0: 🔊 Sound – volume boost 100–200 % + Auto-level (default off), via Android DynamicsProcessing (API 28+) on VLC's own audio
+  session (`--aout=android_audiotrack --audiotrack-session-id=<generateAudioSessionId>`), `Sound.java`: input gain (boost) →
+  1-band MBC (auto-level: thr −30 dB, 4:1, attack 60 ms, release 1.2 s, +9 dB makeup, gate −70 dB) → limiter −1.5 dB (always on).
+  Targets glide (~1.5 s). Saved in SharedPreferences "sound" (boost, auto). Player: 🔊 button after Next opens a glass panel from
+  the right (video keeps playing). Web Settings: injected "🔊 Sound" section (android-post.js, bridge soundGet/soundSet).
+  Removed `--no-stats` (it made the buffered-bar estimate dead). libVLC also has compressor/normvol/gain filters but they can't be
+  changed live, hence DynamicsProcessing. Not yet tested on the tablet.

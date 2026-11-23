@@ -112,6 +112,38 @@
     wrap.appendChild(card);
   }
 
+  // 🔊 Sound in Settings (volume boost + auto-level) – saved on the tablet, the player uses the same values
+  (function soundSettings() {
+    const anchor = document.querySelector('#settings label.row:has(#set-hideadult)') || document.querySelector('#settings .set-sec');
+    if (!anchor || !window.AndroidNative || !window.AndroidNative.soundGet) return;
+    const box = document.createElement('div');
+    box.className = 'set-sec snd-sec';
+    box.innerHTML = '<b>🔊 Sound</b>' +
+      '<div class="snd-row"><span>Volume boost</span><b id="snd-val">100%</b></div>' +
+      '<input type="range" id="snd-boost" min="100" max="200" step="5" value="100">' +
+      '<small class="snd-warn hidden" id="snd-warn">⚠ 150% થી વધારે કરવાથી અવાજ ફાટી શકે</small>' +
+      '<label class="row"><input type="checkbox" id="snd-auto"> Auto-level – every channel about equally loud, loud ads tamed (changes slowly)</label>' +
+      '<small class="muted" id="snd-note">A limiter is always on, so the sound does not crack. Also in the player: 🔊 button.</small>' +
+      '<div class="row-btns"><button class="btn small ghost" id="snd-reset">↺ Reset to default</button></div>';
+    anchor.insertAdjacentElement('afterend', box);
+    const $s = (id) => box.querySelector('#' + id);
+    const show = () => { const v = +$s('snd-boost').value; $s('snd-val').textContent = v + '%'; $s('snd-warn').classList.toggle('hidden', v <= 150); };
+    const load = () => {
+      let c = { boost: 100, auto: false, supported: true };
+      try { c = JSON.parse(window.AndroidNative.soundGet()); } catch {}
+      $s('snd-boost').value = c.boost; $s('snd-auto').checked = !!c.auto; show();
+      if (!c.supported) { $s('snd-boost').disabled = $s('snd-auto').disabled = true; $s('snd-note').textContent = 'This tablet cannot do this (needs Android 9 or newer).'; }
+    };
+    const store = () => { window.AndroidNative.soundSet(+$s('snd-boost').value, $s('snd-auto').checked); };
+    $s('snd-boost').addEventListener('input', () => { show(); store(); });
+    $s('snd-auto').addEventListener('change', store);
+    $s('snd-reset').onclick = () => { $s('snd-boost').value = 100; $s('snd-auto').checked = false; show(); store(); toast('Sound: default'); };
+    // refresh whenever Settings opens (the player panel may have changed it)
+    new MutationObserver(() => { if (!document.getElementById('settings').classList.contains('hidden')) load(); })
+      .observe(document.getElementById('settings'), { attributes: true, attributeFilter: ['class'] });
+    load();
+  })();
+
   // hardware back: close the top window first, then go to Home, then leave the app
   window.__androidBack = function () {
     const open = [...document.querySelectorAll('.modal:not(.hidden), #details:not(.hidden), #subsearch:not(.hidden)')];
