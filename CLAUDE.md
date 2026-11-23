@@ -39,3 +39,6 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
   bridge dlStart/dlList/dlCancel/dlShow, android.js polls every 1 s for the web ⬇ menu. Before 1.2.0 the web ⬇ buttons did nothing.
 - Quality (480p/720p/1080p) of the Windows app only changes the PC's own re-encode (FFmpeg); the server sends one quality per stream
   (no HLS variants, m3u8 = 405) → not added on the tablet (VLC hardware-decodes 1080p/4K, nothing to gain).
+- 1.2.1: glass v2 – BitmapShader (CLAMP: black bars show stretched video edge), saturation 1.7 + lift, 1/8 frame, radius 4,
+  top sheen + gradient rim; floating panel (60dp side margins). Seek bar grey = buffered: secondaryProgress = time + 3 s cache +
+  (readBytes − demuxReadBytes) / demuxBitrate from IMedia.Stats (estimate, smoothed).

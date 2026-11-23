@@ -9,8 +9,8 @@ import java.util.ArrayList;
 
 /** Keeps a small, blurred copy of the current video frame for the {@link GlassView}s. */
 public class Blur {
-    static final int SCALE = 10;   // copy at 1/10 size (it is blurred anyway – cheap)
-    static final int RADIUS = 3;   // box-blur radius at that size, 3 passes ≈ gaussian
+    static final int SCALE = 8;    // copy at 1/8 size (it is blurred anyway – cheap)
+    static final int RADIUS = 4;   // box-blur radius at that size, 3 passes ≈ gaussian
 
     final ArrayList<GlassView> views = new ArrayList<>();
     TextureView texture;

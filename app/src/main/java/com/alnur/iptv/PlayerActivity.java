@@ -132,7 +132,7 @@ public class PlayerActivity extends Activity {
     void playIndex(int i, boolean first) {
         if (!first) savePos();
         index = i;
-        ended = false; retries = 0;
+        ended = false; retries = 0; aheadSmooth = 0;
         Item it = cur();
         title.setText((isLive() && !it.num.isEmpty() ? it.num + "  ·  " : "") + it.name);
         subtitle.setText(it.sub);
@@ -231,6 +231,7 @@ public class PlayerActivity extends Activity {
                 long t = mp.getTime(), d = mp.getLength();
                 if (d > 0) {
                     if (!seeking) { seek.setMax((int) (d / 1000)); seek.setProgress((int) (t / 1000)); }
+                    seek.setSecondaryProgress((int) (Math.min(d, t + bufferedAheadMs()) / 1000));
                     curTime.setText(fmt(t / 1000)); durTime.setText(fmt(d / 1000));
                     Item it = cur();
                     if (!ended && t > 0) { it.lastPos = t / 1000; it.lastDur = d / 1000; }
@@ -239,6 +240,29 @@ public class PlayerActivity extends Activity {
             h.postDelayed(this, 500);
         }
     };
+
+    /** How far ahead of the playing point VLC already has the video (grey part of the seek bar).
+     *  = network cache VLC keeps (3 s) + data read from the server but not yet used (stats: read − demuxed bytes ÷ bitrate). */
+    long aheadSmooth = 0;
+    long bufferedAheadMs() {
+        long ahead = 0;
+        try {
+            org.videolan.libvlc.interfaces.IMedia md = mp.getMedia();
+            if (md != null) {
+                org.videolan.libvlc.interfaces.IMedia.Stats st = md.getStats();
+                md.release();
+                if (st != null && st.demuxBitrate > 0) {
+                    long backlog = Math.max(0L, (long) st.readBytes - (long) st.demuxReadBytes);
+                    ahead = (long) (backlog / st.demuxBitrate); // bitrate is bytes per ms
+                }
+            }
+        } catch (Throwable ignored) { }
+        if (!mp.isPlaying() && spinner.getVisibility() == View.VISIBLE) ahead = 0; // still loading
+        else ahead += 3000;
+        ahead = Math.min(ahead, 10 * 60 * 1000L);
+        aheadSmooth = aheadSmooth == 0 ? ahead : (aheadSmooth * 3 + ahead) / 4;
+        return aheadSmooth;
+    }
 
     static String fmt(long s) {
         if (s < 0) s = 0;
@@ -463,7 +487,8 @@ public class PlayerActivity extends Activity {
     void tintSeek(SeekBar s, int color) {
         s.setProgressTintList(ColorStateList.valueOf(color));
         s.setThumbTintList(ColorStateList.valueOf(Color.WHITE));
-        s.setProgressBackgroundTintList(ColorStateList.valueOf(Color.argb(110, 255, 255, 255)));
+        s.setProgressBackgroundTintList(ColorStateList.valueOf(Color.argb(70, 255, 255, 255)));
+        s.setSecondaryProgressTintList(ColorStateList.valueOf(Color.argb(190, 210, 210, 215))); // buffered part
     }
 
     void buildUi() {
@@ -506,7 +531,7 @@ public class PlayerActivity extends Activity {
         // ---- bottom glass panel (same order as the Windows player)
         bottomBar = new LinearLayout(this);
         bottomBar.setOrientation(LinearLayout.VERTICAL);
-        bottomBar.setPadding(dp(20), dp(12), dp(20), dp(8));
+        bottomBar.setPadding(dp(20), dp(8), dp(20), dp(4));
 
         bottomBar.setClickable(true); // taps on the panel don't hide the controls
 
@@ -554,10 +579,10 @@ public class PlayerActivity extends Activity {
 
         numBtn = iconBtn(R.drawable.ic_dialpad, 46, 22, "Channel number");
         row2.addView(numBtn, new FrameLayout.LayoutParams(dp(46), dp(46), Gravity.END | Gravity.CENTER_VERTICAL));
-        bottomBar.addView(row2, new LinearLayout.LayoutParams(-1, dp(66)));
+        bottomBar.addView(row2, new LinearLayout.LayoutParams(-1, dp(64)));
 
         FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
-        bl.leftMargin = dp(22); bl.rightMargin = dp(22); bl.bottomMargin = dp(18);
+        bl.leftMargin = dp(60); bl.rightMargin = dp(60); bl.bottomMargin = dp(22);
         GlassView panel = new GlassView(this, blur, dp(26));
         panel.addView(bottomBar, new FrameLayout.LayoutParams(-1, -2));
         controls.addView(panel, bl);
@@ -598,7 +623,7 @@ public class PlayerActivity extends Activity {
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user) curTime.setText(fmt(p)); }
             @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; h.removeCallbacks(hideCtl); }
-            @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; mp.setTime(s.getProgress() * 1000L); showControls(); }
+            @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; aheadSmooth = 0; mp.setTime(s.getProgress() * 1000L); showControls(); }
         });
         vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
