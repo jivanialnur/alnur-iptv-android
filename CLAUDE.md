@@ -45,3 +45,7 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
 - 1.2.2: portrait (CSS width ≈784 on the Pad 8) fixed in web/android.css @media (max-width:900px): narrower side list, search box shrinks,
   clock hidden, pager wraps, details modal stacked. "Open in VLC" → bridge openVlc (VLC app, else chooser).
   Layout test: /home/claude/pt/shot.js (Playwright, 784×1175 / 1175×784) + windows repo test/mock.js + test/android/srv.js.
+- 1.3.0: "📺 Free Channels" card on the login/users screen (android-post.js + android.css, Android-only so sync-web.sh keeps it):
+  one tap adds + opens a legal free M3U (iptv-org gh-pages via raw.githubusercontent: Gujarati, Hindi, India, South Africa,
+  Mozambique, News, All world; Free-TV/IPTV playlist.m3u8). Doesn't use the Xtream account. User asked for pirated paid-channel
+  links too – declined; only legal free playlists. Sandbox can't reach the stream hosts, so playback is only tested on the tablet.

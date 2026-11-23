@@ -79,6 +79,39 @@
     if (ch && typeof renderDownloads === 'function') renderDownloads();
   };
 
+  // ---------------------------------------------------------------- Free Channels (legal free-to-air playlists)
+  // iptv-org (publicly available streams) + Free-TV (only officially free channels). One tap = add + open.
+  // These do NOT use the Xtream account, so they don't take its 1 connection.
+  const IO = 'https://raw.githubusercontent.com/iptv-org/iptv/gh-pages/';
+  const FREE_LISTS = [
+    { name: 'Free · Gujarati', flag: '🪔', url: IO + 'languages/guj.m3u' },
+    { name: 'Free · Hindi', flag: '🇮🇳', url: IO + 'languages/hin.m3u' },
+    { name: 'Free · India (all)', flag: '🇮🇳', url: IO + 'countries/in.m3u' },
+    { name: 'Free · South Africa', flag: '🇿🇦', url: IO + 'countries/za.m3u' },
+    { name: 'Free · Mozambique', flag: '🇲🇿', url: IO + 'countries/mz.m3u' },
+    { name: 'Free · News (world)', flag: '📰', url: IO + 'categories/news.m3u' },
+    { name: 'Free-TV (best quality)', flag: '⭐', url: 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8' },
+    { name: 'Free · All world', flag: '🌍', url: IO + 'index.m3u' }
+  ];
+  async function openFree(i) {
+    const f = FREE_LISTS[i]; if (!f) return;
+    let user = S.users.find(u => u.type === 'm3u' && u.url === f.url);
+    const isNew = !user;
+    if (isNew) user = { id: 'free' + Date.now().toString(36), type: 'm3u', name: f.name, url: f.url, free: true };
+    const ok = await login(user, false);
+    if (ok && isNew) { S.users.push(user); await save('users', S.users); renderUsers(); }
+  }
+  const wrap = document.querySelector('#screen-login .login-wrap');
+  if (wrap) {
+    const card = document.createElement('div');
+    card.className = 'card'; card.id = 'free-box';
+    card.innerHTML = '<h2>📺 Free Channels <small style="font-weight:400;color:var(--muted)">· ફ્રી ચેનલો</small></h2>' +
+      '<div class="free-grid">' + FREE_LISTS.map((f, i) => `<button class="free-btn" data-free="${i}"><span>${f.flag}</span>${esc(f.name.replace(/^Free · /, ''))}</button>`).join('') + '</div>' +
+      '<p class="free-note">Legal free-to-air channels (iptv-org, Free-TV). Some streams can be offline. Does not use your IPTV account.</p>';
+    card.addEventListener('click', (e) => { const b = e.target.closest('[data-free]'); if (b) openFree(+b.dataset.free); });
+    wrap.appendChild(card);
+  }
+
   // hardware back: close the top window first, then go to Home, then leave the app
   window.__androidBack = function () {
     const open = [...document.querySelectorAll('.modal:not(.hidden), #details:not(.hidden), #subsearch:not(.hidden)')];

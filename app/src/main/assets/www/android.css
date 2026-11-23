@@ -34,3 +34,14 @@
 /* landscape: the search box gives way first, so the clock never gets pushed off the edge */
 .is-android .searchbox { min-width: 0; }
 .is-android .tools { flex-shrink: 0; }
+
+/* login screen can scroll (Free Channels card added below) */
+.is-android #screen-login { align-items: flex-start; overflow-y: auto; }
+.is-android #screen-login .login-wrap { margin: auto; padding: 24px 0; }
+#free-box h2 small { font-size: 13px; }
+.free-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.free-btn { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 10px 12px; border-radius: 10px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--text); font-size: 14px; font-weight: 600; text-align: left; }
+.free-btn span { font-size: 18px; }
+.free-btn:active { border-color: var(--accent); background: var(--accent-soft); }
+.free-note { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
