@@ -24,6 +24,7 @@ Owner: Alnur (writes romanized Gujarati / Gujarati; answer in the same, short an
 - Many live channels are interlaced 1080i with AC3/MP2 audio (fine in VLC). No EPG programmes on this server.
 
 ## Delivery
+Stable download link (always newest): https://github.com/jivanialnur/alnur-iptv-android/raw/apk/AlnurIPTV-Tablet.apk
 APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_files). Install: allow unknown apps, install over the old one.
 
 ## Status

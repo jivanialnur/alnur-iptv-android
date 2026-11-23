@@ -25,6 +25,7 @@ jobs:
         run: |
           V=$(grep versionName app/build.gradle | sed "s/.*'\(.*\)'.*/\1/")
           mkdir -p out && cp app/build/outputs/apk/release/app-release.apk "out/AlnurIPTV-Tablet-$V.apk"
+          cp out/AlnurIPTV-Tablet-$V.apk out/AlnurIPTV-Tablet.apk   # fixed name = link never changes
           ls -la out
       - uses: actions/upload-artifact@v4
         with:
