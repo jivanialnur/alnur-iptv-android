@@ -71,6 +71,14 @@
     if (ok) { S.users.push(user); await save('users', S.users); e.target.reset(); }
   };
 
+  // downloads: entries Android no longer lists (cancelled, or restarted after "server busy") leave the ⬇ menu
+  window.__dlKeep = function (ids) {
+    if (typeof DL === 'undefined') return;
+    let ch = false;
+    for (const k of [...DL.keys()]) if (k > 0 && !ids.has(k)) { DL.delete(k); ch = true; }
+    if (ch && typeof renderDownloads === 'function') renderDownloads();
+  };
+
   // hardware back: close the top window first, then go to Home, then leave the app
   window.__androidBack = function () {
     const open = [...document.querySelectorAll('.modal:not(.hidden), #details:not(.hidden), #subsearch:not(.hidden)')];

@@ -72,7 +72,9 @@ public class PlayerActivity extends Activity {
     View rwBtn, ffBtn, linkBtn, dlBtn, openBtn;
     LinearLayout bottomBar;
     SeekBar seek, vol;
-    boolean stoppedForOther; // playback stopped so Download / another app can use the 1 connection
+    boolean stoppedForOther;
+    final Blur blur = new Blur();   // blurred video copy for the glass panels
+    GlassView osdBox, msgBox; // playback stopped so Download / another app can use the 1 connection
     ProgressBar spinner;
     boolean seeking, controlsShown = true, ended;
     int scaleMode = 0;
@@ -98,10 +100,11 @@ public class PlayerActivity extends Activity {
         opts.add("--no-stats");
         vlc = new LibVLC(this, opts);
         mp = new MediaPlayer(vlc);
-        mp.attachViews(videoLayout, null, true, false);
+        mp.attachViews(videoLayout, null, true, true); // TextureView: lets the glass panels blur the picture behind them
         mp.setEventListener(this::onVlcEvent);
         playIndex(index, true);
         h.post(ticker);
+        h.post(glassTick);
     }
 
     void parse() {
@@ -145,7 +148,7 @@ public class PlayerActivity extends Activity {
         boolean many = items.size() > 1;
         prevBtn.setAlpha(many ? 1f : 0.3f); nextBtn.setAlpha(many ? 1f : 0.3f);
         curTime.setText(""); durTime.setText("");
-        msg.setVisibility(View.GONE);
+        msgBox.setVisibility(View.GONE);
         start(it.url, live ? 0 : it.start);
         showControls();
     }
@@ -174,7 +177,7 @@ public class PlayerActivity extends Activity {
             case MediaPlayer.Event.Playing:
                 spinner.setVisibility(View.GONE);
                 setPlayIcon(true);
-                msg.setVisibility(View.GONE);
+                msgBox.setVisibility(View.GONE);
                 break;
             case MediaPlayer.Event.Paused:
                 setPlayIcon(false);
@@ -220,7 +223,7 @@ public class PlayerActivity extends Activity {
         showMsg("Could not play this " + (isLive() ? "channel" : "video") + ".\nThe server may be busy or the stream is offline.\nTap ⟳ to try again.");
     }
 
-    void showMsg(String t) { msg.setText(t + "\n\n⟳  Retry"); msg.setVisibility(View.VISIBLE); showControls(); }
+    void showMsg(String t) { msg.setText(t + "\n\n⟳  Retry"); msgBox.setVisibility(View.VISIBLE); showControls(); }
 
     final Runnable ticker = new Runnable() {
         @Override public void run() {
@@ -245,7 +248,7 @@ public class PlayerActivity extends Activity {
 
     void togglePlay() {
         if (ended) { playIndex(index, false); return; }
-        if (stoppedForOther) { msg.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); return; }
+        if (stoppedForOther) { msgBox.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); return; }
         if (mp.isPlaying()) mp.pause(); else mp.play();
         showControls();
     }
@@ -393,7 +396,7 @@ public class PlayerActivity extends Activity {
     RippleDrawable ripple(Drawable content, boolean oval) {
         GradientDrawable mask = new GradientDrawable();
         mask.setColor(Color.WHITE);
-        if (oval) mask.setShape(GradientDrawable.OVAL); else mask.setCornerRadius(dp(14));
+        if (oval) mask.setShape(GradientDrawable.OVAL); else mask.setCornerRadius(dp(24));
         return new RippleDrawable(ColorStateList.valueOf(Color.argb(90, 255, 255, 255)), content, mask);
     }
 
@@ -428,19 +431,21 @@ public class PlayerActivity extends Activity {
     }
 
     /** glass pill with icon + text (top bar: Link, Download, Open in…) */
-    LinearLayout chip(int res, String text) {
+    GlassView chip(int res, String text) {
+        GlassView g = new GlassView(this, blur, -1);
+        g.setForeground(ripple(null, false));
+        g.setClickable(true);
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.HORIZONTAL);
         c.setGravity(Gravity.CENTER_VERTICAL);
         c.setPadding(dp(14), 0, dp(16), 0);
-        c.setBackground(ripple(glass(22, 150), false));
-        c.setClickable(true);
+        g.addView(c, new FrameLayout.LayoutParams(-2, -1));
         ImageView i = new ImageView(this); i.setImageResource(res);
         c.addView(i, new LinearLayout.LayoutParams(dp(18), dp(18)));
         TextView t = new TextView(this); t.setText(text); t.setTextColor(Color.WHITE); t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14); t.setTypeface(Typeface.DEFAULT_BOLD);
         LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2); tl.leftMargin = dp(8);
         c.addView(t, tl);
-        return c;
+        return g;
     }
 
     LinearLayout.LayoutParams lpm(int l, int r) {
@@ -480,8 +485,9 @@ public class PlayerActivity extends Activity {
         top.setPadding(dp(18), dp(16), dp(18), dp(36));
         top.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.argb(160, 0, 0, 0), Color.TRANSPARENT}));
         backBtn = iconBtn(R.drawable.ic_back, 48, 24, "Back");
-        backBtn.setBackground(ripple(glass(24, 150), true));
-        top.addView(backBtn, sized(backBtn, 0, 14));
+        GlassView backGlass = new GlassView(this, blur, -1);
+        backGlass.addView(backBtn, new FrameLayout.LayoutParams(dp(48), dp(48)));
+        top.addView(backGlass, sized(backBtn, 0, 14));
         LinearLayout titles = new LinearLayout(this);
         titles.setOrientation(LinearLayout.VERTICAL);
         title = new TextView(this); title.setTextColor(Color.WHITE); title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19); title.setTypeface(Typeface.DEFAULT_BOLD); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -501,7 +507,7 @@ public class PlayerActivity extends Activity {
         bottomBar = new LinearLayout(this);
         bottomBar.setOrientation(LinearLayout.VERTICAL);
         bottomBar.setPadding(dp(20), dp(12), dp(20), dp(8));
-        bottomBar.setBackground(glass(26, 165));
+
         bottomBar.setClickable(true); // taps on the panel don't hide the controls
 
         // row 1: time  ━━━━━●───  duration / LIVE
@@ -552,18 +558,23 @@ public class PlayerActivity extends Activity {
 
         FrameLayout.LayoutParams bl = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         bl.leftMargin = dp(22); bl.rightMargin = dp(22); bl.bottomMargin = dp(18);
-        controls.addView(bottomBar, bl);
+        GlassView panel = new GlassView(this, blur, dp(26));
+        panel.addView(bottomBar, new FrameLayout.LayoutParams(-1, -2));
+        controls.addView(panel, bl);
 
         // ---- OSD + message (glass too)
         osd = new TextView(this);
         osd.setTextColor(Color.WHITE); osd.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22); osd.setTypeface(Typeface.DEFAULT_BOLD);
-        osd.setBackground(glass(18, 190)); osd.setPadding(dp(22), dp(12), dp(22), dp(12)); osd.setVisibility(View.GONE);
+        osd.setPadding(dp(22), dp(12), dp(22), dp(12));
+        osdBox = new GlassView(this, blur, dp(18)); osdBox.addView(osd); osdBox.setVisibility(View.GONE);
         FrameLayout.LayoutParams ol = new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL | Gravity.TOP); ol.topMargin = dp(100);
-        root.addView(osd, ol);
+        root.addView(osdBox, ol);
         msg = new TextView(this);
         msg.setTextColor(Color.WHITE); msg.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16); msg.setGravity(Gravity.CENTER);
-        msg.setBackground(glass(18, 215)); msg.setPadding(dp(26), dp(20), dp(26), dp(20)); msg.setVisibility(View.GONE);
-        root.addView(msg, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        msg.setPadding(dp(26), dp(20), dp(26), dp(20));
+        msgBox = new GlassView(this, blur, dp(18)); msgBox.addView(msg); msgBox.setVisibility(View.GONE);
+        msgBox.tint = Color.argb(140, 18, 18, 24); // text must stay readable
+        root.addView(msgBox, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
 
         setContentView(root);
 
@@ -583,7 +594,7 @@ public class PlayerActivity extends Activity {
         linkBtn.setOnClickListener(v -> showLink());
         dlBtn.setOnClickListener(v -> askDownload());
         openBtn.setOnClickListener(v -> openInOtherApp());
-        msg.setOnClickListener(v -> { msg.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); });
+        msg.setOnClickListener(v -> { msgBox.setVisibility(View.GONE); retries = 0; start(cur().url, isLive() ? 0 : Math.max(0, cur().lastPos * 1000)); });
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user) curTime.setText(fmt(p)); }
             @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; h.removeCallbacks(hideCtl); }
@@ -692,20 +703,12 @@ public class PlayerActivity extends Activity {
             String path = Uri.parse(it.url).getLastPathSegment();
             String ext = path != null && path.lastIndexOf('.') > 0 ? path.substring(path.lastIndexOf('.')) : ".mp4";
             if (ext.length() > 6) ext = ".mp4";
-            String safe = it.name.replaceAll("[\\\\/:*?\"<>|]+", " ").trim();
-            if (safe.isEmpty()) safe = "video";
-            if (safe.length() > 80) safe = safe.substring(0, 80).trim();
-            DownloadManager.Request r = new DownloadManager.Request(Uri.parse(it.url));
-            r.addRequestHeader("User-Agent", ua);
-            r.setTitle(it.name);
-            r.setDescription("Alnur IPTV");
-            r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "AlnurIPTV/" + safe + ext);
-            DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            dm.enqueue(r);
-            Toast.makeText(this, "Download started – see the notification bar", Toast.LENGTH_LONG).show();
+            String base = it.sub != null && !it.sub.isEmpty() && "episode".equals(it.kind) ? it.sub + " - " + it.name : it.name;
+            String[] err = new String[1];
+            if (Downloads.start(this, it.url, base + ext, ua, err) < 0) throw new Exception(err[0]);
+            Toast.makeText(this, "Download started – see ⬇ at the top of the app", Toast.LENGTH_LONG).show();
             setPlayIcon(false);
-            showMsg("⬇ Downloading \"" + it.name + "\".\nProgress is in the notification bar.\nTap here to stop waiting and play again.");
+            showMsg("⬇ Downloading \"" + it.name + "\".\nProgress: ⬇ at the top of the app, or the notification bar.\nTap here to play again (this stops the download\u2019s connection).");
         } catch (Exception e) {
             showMsg("Download could not start:\n" + e.getMessage());
         }
@@ -727,6 +730,14 @@ public class PlayerActivity extends Activity {
         }
     }
 
+    final Runnable glassTick = new Runnable() {
+        @Override public void run() {
+            if (controlsShown || (osdBox != null && osdBox.getVisibility() == View.VISIBLE) || (msgBox != null && msgBox.getVisibility() == View.VISIBLE))
+                blur.refresh(videoLayout);
+            h.postDelayed(this, 66);
+        }
+    };
+
     final Runnable hideCtl = this::hideControls;
     void showControls() {
         controls.setVisibility(View.VISIBLE); controlsShown = true;
@@ -740,8 +751,8 @@ public class PlayerActivity extends Activity {
         hideSystemBars();
     }
 
-    final Runnable hideOsd = () -> osd.setVisibility(View.GONE);
-    void osd(String t) { osd.setText(t); osd.setVisibility(View.VISIBLE); h.removeCallbacks(hideOsd); h.postDelayed(hideOsd, 1000); }
+    final Runnable hideOsd = () -> osdBox.setVisibility(View.GONE);
+    void osd(String t) { osd.setText(t); osdBox.setVisibility(View.VISIBLE); h.removeCallbacks(hideOsd); h.postDelayed(hideOsd, 1000); }
     void toast(String t) { osd(t); }
 
     void hideSystemBars() {

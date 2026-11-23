@@ -33,3 +33,9 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
   top glass chips Link (copy/share) · Download (VOD, DownloadManager → Downloads/AlnurIPTV, stops playback: 1 connection) · Open in… (other app).
   Icons = vector drawables made from the Windows SVG paths (res/drawable/ic_*.xml).
 - 2026-11-23: repo made PUBLIC (Actions were blocked by billing on private). 1.1.0 built OK, not yet tested on the tablet.
+- 1.2.0: REAL glass: video drawn on a TextureView; `Blur` grabs a 1/10-size frame ~15×/s while controls/OSD are visible, box-blurs it,
+  `GlassView` draws its part of that blurred frame + tint + highlight + border (bottom panel, chips, back button, OSD, message).
+  Downloads work: `Downloads.java` (DownloadManager → Downloads/AlnurIPTV, VLC UA header, auto-retry 3× on 401/403/503 "busy"),
+  bridge dlStart/dlList/dlCancel/dlShow, android.js polls every 1 s for the web ⬇ menu. Before 1.2.0 the web ⬇ buttons did nothing.
+- Quality (480p/720p/1080p) of the Windows app only changes the PC's own re-encode (FFmpeg); the server sends one quality per stream
+  (no HLS variants, m3u8 = 405) → not added on the tablet (VLC hardware-decodes 1080p/4K, nothing to gain).

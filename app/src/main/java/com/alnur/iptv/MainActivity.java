@@ -181,6 +181,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void openUrl(String url) {
             runOnUiThread(() -> { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception ignored) { } });
         }
+        // downloads (DownloadManager): web ⬇ menu
+        @JavascriptInterface public String dlStart(String url, String name, String ua) {
+            String[] err = new String[1];
+            long id = Downloads.start(MainActivity.this, url, name, ua, err);
+            try { return new JSONObject().put("id", id).put("error", err[0] == null ? "" : err[0]).toString(); } catch (Exception e) { return "{\"id\":-1}"; }
+        }
+        @JavascriptInterface public String dlList() { return Downloads.list(MainActivity.this); }
+        @JavascriptInterface public void dlCancel(String id) { try { Downloads.cancel(MainActivity.this, Long.parseLong(id)); } catch (Exception ignored) { } }
+        @JavascriptInterface public void dlShow(String id) {
+            long v; try { v = Long.parseLong(id); } catch (Exception e) { v = -1; }
+            final long fv = v;
+            runOnUiThread(() -> Downloads.show(MainActivity.this, fv));
+        }
         @JavascriptInterface public void toast(String t) { runOnUiThread(() -> Toast.makeText(MainActivity.this, t, Toast.LENGTH_SHORT).show()); }
         @JavascriptInterface public void exit() { runOnUiThread(() -> moveTaskToBack(true)); }
         @JavascriptInterface public void keepAwake(boolean on) {

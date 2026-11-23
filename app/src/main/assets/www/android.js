@@ -24,6 +24,26 @@
   async function idb(mode, fn) { const d = await db(); return new Promise((res, rej) => { const t = d.transaction('kv', mode); const r = fn(t.objectStore('kv')); t.oncomplete = () => res(r && r.result); t.onerror = () => rej(t.error); }); }
 
   const noop = () => {};
+
+  // ---- downloads: Android DownloadManager (Java side), polled for the ⬇ menu
+  let dlCb = null, dlT = null;
+  const seen = new Map(); // id -> {got, t} for speed
+  function dlPoll() {
+    clearTimeout(dlT);
+    let list = [];
+    try { list = JSON.parse(window.AndroidNative.dlList() || '[]'); } catch { list = []; }
+    const now = Date.now(), ids = new Set();
+    for (const d of list) {
+      ids.add(d.id);
+      const p = seen.get(d.id);
+      d.speed = p && now > p.t ? Math.max(0, (d.got - p.got) / ((now - p.t) / 1000)) : 0;
+      seen.set(d.id, { got: d.got, t: now });
+      if (dlCb) dlCb(d);
+    }
+    if (dlCb) window.__dlKeep && window.__dlKeep(ids);
+    if (list.some(d => ['starting', 'downloading', 'waiting'].includes(d.state))) dlT = setTimeout(dlPoll, 1000);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) dlPoll(); });
   const nope = async () => ({ ok: false, error: 'Not available on the tablet' });
   window.native = {
     isAndroid: true,
@@ -54,11 +74,20 @@
     // PC-only features
     convert: nope, duration: nope, convertError: async () => '', probe: nope, convertLog: async () => null,
     diagAppend: async () => true, runDiag: nope, onDiagProgress: noop,
-    dlStart: nope, dlCancel: nope, dlShow: nope, onDl: noop,
     recList: async () => [], recAdd: nope, recInstant: nope, recCancel: nope, recDelete: nope, recFolder: nope, onRec: noop, onRecStarting: noop,
     backupExport: nope, backupImport: nope,
     epgLoad: async () => ({ ok: false, error: 'not on tablet' }), epgStatus: async () => ({}), epgFor: async () => ({}),
     subsSearch: async () => ({ results: [], errors: ['Online subtitles are not on the tablet yet'] }), subsDownload: nope,
-    openVLC: async () => false
+    openVLC: async () => false,
+    dlStart: async (url, name, ua) => {
+      let r = {};
+      try { r = JSON.parse(window.AndroidNative.dlStart(url, name, ua || UA)); } catch { r = { id: -1, error: 'Download could not start' }; }
+      if (!(r.id > 0)) { if (dlCb) dlCb({ id: -Date.now(), name, state: 'error', error: r.error || 'Download could not start', got: 0, total: 0 }); return { ok: false, error: r.error }; }
+      setTimeout(dlPoll, 300);
+      return { ok: true, id: r.id };
+    },
+    dlCancel: async (id) => { window.AndroidNative.dlCancel(String(id)); setTimeout(dlPoll, 200); return true; },
+    dlShow: async (file) => { window.AndroidNative.dlShow(String(file || '')); return true; },
+    onDl: (cb) => { dlCb = cb; setTimeout(dlPoll, 500); }
   };
 })();
