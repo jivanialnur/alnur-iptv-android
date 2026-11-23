@@ -27,4 +27,5 @@ Owner: Alnur (writes romanized Gujarati / Gujarati; answer in the same, short an
 APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_files). Install: allow unknown apps, install over the old one.
 
 ## Status
-- 1.0.0 built 2026-11-23, not yet tested on the real tablet.
+- 1.0.0 installed on the tablet 2026-11-23; M3U login works.
+- 1.0.1: Xtream login form forgives https/missing :8080, no auto-capitalize on login inputs (android-post.js).

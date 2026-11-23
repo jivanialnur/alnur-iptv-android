@@ -42,6 +42,35 @@
     if (S.view === 'dash' && typeof goHome === 'function') goHome();
   };
 
+  // Login form on a tablet keyboard: no auto-capital / autocorrect (it changes usernames like "abc" -> "Abc")
+  document.querySelectorAll('#form-xtream input, #form-m3u input').forEach(i => {
+    i.setAttribute('autocapitalize', 'none'); i.setAttribute('autocorrect', 'off'); i.setAttribute('spellcheck', 'false');
+  });
+  const urlIn = document.querySelector('#form-xtream input[name=url]'); if (urlIn) { urlIn.type = 'url'; urlIn.setAttribute('inputmode', 'url'); }
+
+  // Xtream login: forgive common mistakes in the server address (https instead of http, missing :8080)
+  const fx = document.querySelector('#form-xtream');
+  if (fx) fx.onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    const clean = (v) => (v || '').replace(/\s+/g, '');
+    const user = { id: Date.now().toString(36), type: 'xtream', name: f.name.trim(), username: clean(f.username), password: (f.password || '').trim(), url: normBase(clean(f.url)), uaFixed: (f.ua || '').trim() || undefined };
+    // a full get.php / player_api link pasted into the server box: take user + pass from it
+    try { const u = new URL(clean(f.url)); if (u.searchParams.get('username')) { user.username = u.searchParams.get('username'); user.password = u.searchParams.get('password') || user.password; } } catch {}
+    const tries = [user.url];
+    if (/^https:/i.test(user.url)) tries.push(user.url.replace(/^https:/i, 'http:'));
+    for (const t of [...tries]) if (!/:\d+$/.test(t)) tries.push(t.replace(/^https:/i, 'http:') + ':8080');
+    const uniq = [...new Set(tries)];
+    let ok = false;
+    for (let i = 0; i < uniq.length && !ok; i++) {
+      user.url = uniq[i];
+      ok = await login(user, true);
+      // only retry another address when the server could not be reached (not for a wrong password)
+      if (!ok && !/SSL|TLS|connect|refused|timed? ?out|Unable to resolve|No response|ECONN|EOF|reset/i.test(document.querySelector('#login-msg').textContent)) break;
+    }
+    if (ok) { S.users.push(user); await save('users', S.users); e.target.reset(); }
+  };
+
   // hardware back: close the top window first, then go to Home, then leave the app
   window.__androidBack = function () {
     const open = [...document.querySelectorAll('.modal:not(.hidden), #details:not(.hidden), #subsearch:not(.hidden)')];
