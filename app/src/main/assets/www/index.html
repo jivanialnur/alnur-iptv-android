@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: http: https:; media-src * blob: data:; img-src * data: blob:; connect-src *;">
+<title>Alnur IPTV Player</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="android.css">
+</head>
+<body>
+
+<!-- ============ LOGIN / USERS ============ -->
+<section id="screen-login" class="screen">
+  <div class="login-wrap">
+    <div class="brand"><div class="logo">▶</div><div><h1>Alnur IPTV Player</h1><p>Live TV · Movies · Series</p></div></div>
+
+    <div id="user-list-box" class="card hidden">
+      <h2>List Users</h2>
+      <div id="user-list"></div>
+      <button class="btn ghost" id="btn-add-user">+ Add New User</button>
+    </div>
+
+    <div id="login-box" class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="xtream">Login with Xtream Codes API</button>
+        <button class="tab" data-tab="m3u">Load Playlist / M3U URL</button>
+      </div>
+      <form id="form-xtream" class="form">
+        <label>Any Name<input name="name" placeholder="e.g. My IPTV" required></label>
+        <label>Username<input name="username" required autocomplete="off"></label>
+        <label>Password<input name="password" type="password" required></label>
+        <label>Server URL<input name="url" placeholder="http://example.com:8080" required></label>
+        <details class="adv"><summary>Advanced (optional)</summary><label>Custom User-Agent<input name="ua" placeholder="Leave empty = auto"></label></details>
+        <button class="btn primary" type="submit">ADD USER</button>
+      </form>
+      <form id="form-m3u" class="form hidden">
+        <label>Playlist Name<input name="name" placeholder="e.g. My Playlist" required></label>
+        <label>M3U URL<input name="url" placeholder="http://.../get.php?username=..&password=..&type=m3u_plus" required></label>
+        <details class="adv"><summary>Advanced (optional)</summary><label>Custom User-Agent<input name="ua" placeholder="Leave empty = auto"></label></details>
+        <button class="btn primary" type="submit">ADD USER</button>
+      </form>
+      <div id="login-msg" class="msg"></div>
+      <button class="btn ghost hidden" id="btn-back-users">← Back to users</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MAIN APP (rail + categories + grid) ============ -->
+<section id="screen-main" class="screen hidden">
+  <nav class="rail">
+    <div class="rail-logo">▶</div>
+    <button class="rail-btn" data-nav="dash" title="Dashboard"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z"/></svg></button>
+    <button class="rail-btn" data-nav="live" title="Live TV"><svg viewBox="0 0 24 24"><path d="M21 6h-7.6l3.3-3.3-.7-.7L12 6 8 2l-.7.7L10.6 6H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 14H3V8h18v12zM9 10v8l7-4z"/></svg></button>
+    <button class="rail-btn" data-nav="movie" title="Movies"><svg viewBox="0 0 24 24"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg></button>
+    <button class="rail-btn" data-nav="series" title="Series"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/></svg></button>
+    <div class="rail-sep"></div>
+    <button class="rail-btn" data-nav="fav" title="Favorites"><svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>
+    <button class="rail-btn" data-nav="recent" title="Recently watched"><svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 0 0-9 9H1l3.9 3.9.1.1L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3zm-1 5v5l4.25 2.52.77-1.28-3.52-2.09V8z"/></svg></button>
+    <button class="rail-btn" data-nav="guide" title="TV Guide"><svg viewBox="0 0 24 24"><path d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-2 .9-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V9h14v10zM7 11h5v5H7z"/></svg></button>
+    <button class="rail-btn" data-nav="rec" title="Recordings"><svg viewBox="0 0 24 24"><path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/></svg><span class="rail-dot hidden" id="rec-dot"></span></button>
+    <div class="rail-space"></div>
+    <button class="rail-btn" data-nav="search" title="Search (Ctrl+K)"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+    <button class="rail-btn" data-nav="settings" title="Settings"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.5 7.5 0 0 0 0-1.88l2.03-1.58-1.92-3.32-2.39.96a7.03 7.03 0 0 0-1.63-.94L14.87 3.6h-3.84l-.36 2.58c-.59.24-1.13.56-1.63.94l-2.39-.96-1.92 3.32 2.03 1.58a7.5 7.5 0 0 0 0 1.88l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.04.7 1.63.94l.36 2.58h3.84l.36-2.58c.59-.24 1.13-.56 1.63-.94l2.39.96 1.92-3.32-2.03-1.58zM12.95 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/></svg></button>
+  </nav>
+
+  <aside class="side" id="side">
+    <div class="pl-select" id="pl-select">
+      <div class="pl-ico">☰</div>
+      <div class="pl-txt"><b id="pl-name">-</b><small id="pl-type">Xtream Code</small></div>
+      <span class="pl-caret">▾</span>
+      <div class="pl-menu hidden" id="pl-menu"></div>
+    </div>
+    <div class="side-head">
+      <h3 id="side-title">Live Categories</h3>
+      <button class="mini-btn" id="cat-search-btn" title="Filter categories">🔍</button>
+    </div>
+    <input id="cat-filter" class="cat-filter hidden" placeholder="Filter categories…">
+    <div class="cats" id="cats"></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar2">
+      <label class="searchbox">
+        <span class="s-ico">🔍</span>
+        <span class="crumb" id="crumb">Live TV / All Items</span>
+        <input id="search" placeholder="Search in this section…" autocomplete="off">
+        <kbd>Ctrl+K</kbd>
+      </label>
+      <div class="tools">
+        <div class="dlwrap">
+          <button class="tool-btn" id="btn-dl" title="Downloads">⬇<span class="dl-badge hidden" id="dl-badge"></span></button>
+          <div class="dlmenu hidden" id="dlmenu"><h4>Downloads</h4><div id="dl-list"></div><button class="btn small ghost" id="dl-folder">📁 Open Downloads folder</button></div>
+        </div>
+        <button class="tool-btn" id="btn-view" title="Grid / List view">▦</button>
+        <button class="tool-btn" id="btn-reload" title="Reload playlist">⟳</button>
+        <button class="tool-btn" id="btn-theme" title="Light / Dark theme">☾</button>
+        <button class="tool-btn" id="btn-switch" title="Playlists / users">＋</button>
+        <span class="clock" id="clock"></span>
+      </div>
+    </header>
+
+    <!-- Dashboard -->
+    <div class="dash hidden" id="dash">
+      <div class="dash-head"><h1>Welcome 👋</h1><p id="acc-info"></p></div>
+      <div class="dash-tiles">
+        <button class="dtile live" data-go="live"><span class="dt-ico">📺</span><b>Live TV</b><small id="cnt-live"></small></button>
+        <button class="dtile movie" data-go="movie"><span class="dt-ico">🎬</span><b>Movies</b><small id="cnt-movie"></small></button>
+        <button class="dtile series" data-go="series"><span class="dt-ico">🎞️</span><b>Series</b><small id="cnt-series"></small></button>
+      </div>
+      <div id="dash-cont-wrap" class="hidden"><h3 class="dash-sub">▶ Continue watching <button class="btn small ghost dash-clear" id="clear-cont">🗑 Clear all</button></h3><div class="grid" id="dash-cont" style="margin-bottom:24px"></div></div>
+      <h3 class="dash-sub">Recently watched <button class="btn small ghost dash-clear" id="clear-recent">🗑 Clear all</button></h3>
+      <div class="grid" id="dash-recent"></div>
+    </div>
+
+    <!-- TV Guide grid -->
+    <div class="guideview hidden" id="guideview">
+      <div class="g-top">
+        <select id="g-cat"></select>
+        <button class="btn small" id="g-prev">◀ 1h</button><button class="btn small" id="g-now">Now</button><button class="btn small" id="g-next">1h ▶</button>
+        <b id="g-day"></b>
+        <span class="g-pager"><button class="pg" id="g-pprev">‹</button><span id="g-page"></span><button class="pg" id="g-pnext">›</button></span>
+      </div>
+      <div class="g-hint hidden" id="g-hint">No programme data. Your server sends channel names but no programmes. Add a TV guide (XMLTV) link in ⚙ Settings → TV Guide, then press "Load".</div>
+      <div class="g-grid"><div class="g-headrow"><div class="g-ch g-chhead">Channel</div><div class="g-line" id="g-head"></div></div><div id="g-rows"></div></div>
+      <div class="g-pop hidden" id="g-pop"></div>
+    </div>
+
+    <!-- Recordings -->
+    <div class="dash hidden" id="recview">
+      <div class="dash-head"><h1>⏺ Recordings</h1><p>Saved in your Downloads folder → "Alnur IPTV Recordings". The app must be open for scheduled recordings.</p></div>
+      <div class="rec-form card">
+        <b>Schedule a recording</b>
+        <div class="rec-row">
+          <label>Channel<select id="rs-ch"></select></label>
+          <label>Start<input type="datetime-local" id="rs-start"></label>
+          <label>Minutes<input type="number" id="rs-min" value="60" min="1" max="600"></label>
+          <button class="btn primary" id="rs-add">⏺ Schedule</button>
+        </div>
+        <small class="muted">Tip: open a channel's TV Guide and press ⏺ on a programme, or press ⏺ Rec while watching.</small>
+      </div>
+      <div id="rec-list"></div>
+    </div>
+
+    <!-- Browse -->
+    <div class="browse2" id="browse">
+      <div class="main-head">
+        <h2 id="sec-title">All Items</h2><span class="sec-count" id="sec-count"></span>
+        <div class="pager">
+          <span>Items per page:</span>
+          <select id="per-page"><option>25</option><option>50</option><option>100</option><option>200</option></select>
+          <span id="page-info"></span>
+          <button class="pg" id="pg-prev" title="Previous page">‹</button>
+          <button class="pg" id="pg-next" title="Next page">›</button>
+        </div>
+      </div>
+      <div class="items" id="items"></div>
+    </div>
+  </main>
+</section>
+
+<!-- ============ DETAILS (movie / series) ============ -->
+<div id="details" class="modal hidden">
+  <div class="modal-body">
+    <button class="icon-btn close" id="details-close">✕</button>
+    <div class="details" id="details-content"></div>
+  </div>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div id="settings" class="modal hidden">
+  <div class="modal-body narrow">
+    <button class="icon-btn close" data-close="settings">✕</button>
+    <h2>Settings</h2>
+    <label>User-Agent (player identity)
+      <select id="set-ua"></select>
+    </label>
+    <label>Live stream format
+      <select id="set-format"><option value="ts">MPEG-TS (.ts) – recommended</option><option value="m3u8">HLS (.m3u8)</option></select>
+    </label>
+    <label>Format converter (FFmpeg)
+      <select id="set-convert"><option value="auto">Auto – only when a channel needs it (recommended)</option><option value="always">Always (most compatible, more CPU)</option></select>
+    </label>
+    <label>VLC path (optional)
+      <input id="set-vlc" placeholder="C:\Program Files\VideoLAN\VLC\vlc.exe">
+    </label>
+    <label class="row"><input type="checkbox" id="set-autovlc"> Always play in VLC (best compatibility)</label>
+    <label class="row"><input type="checkbox" id="set-hideadult" checked> Hide adult categories</label>
+    <div class="set-sec"><b>📅 TV Guide (EPG)</b>
+      <label>XMLTV link (.xml or .xml.gz) – leave empty to use your server's guide<input id="set-epg" placeholder="https://…/guide.xml.gz"></label>
+      <div class="row-btns"><button class="btn small" id="set-epg-load">⬇ Load guide</button><small class="muted" id="set-epg-status"></small></div>
+    </div>
+    <div class="set-sec"><b>🎬 Movie info (TMDB)</b>
+      <small class="muted">Optional: adds cast photos and better "More like this". Free key: <a href="#" data-ext="https://www.themoviedb.org/settings/api">themoviedb.org → Settings → API</a> (create account first).</small>
+      <label>TMDB API key<input id="set-tmdb" placeholder="paste key"></label>
+    </div>
+    <div class="set-sec"><b>💬 Online subtitles</b>
+      <small class="muted">Free API keys: <a href="#" data-ext="https://www.opensubtitles.com/en/consumers">OpenSubtitles (create account → API consumers)</a> · <a href="#" data-ext="https://subdl.com/panel/api">SubDL (create account → API)</a>. One key is enough; both = more results.</small>
+      <label>OpenSubtitles API key<input id="set-oskey" placeholder="paste key"></label>
+      <label>SubDL API key<input id="set-subdlkey" placeholder="paste key"></label>
+    </div>
+    <div class="set-sec"><b>🔒 Parental control</b>
+      <label class="row"><input type="checkbox" id="set-lockadult" checked> When a PIN is set: show adult categories but lock them with the PIN</label>
+      <div class="row-btns"><button class="btn small" id="set-pin">Set / change PIN</button><button class="btn small ghost" id="set-pin-off">Remove PIN</button></div>
+      <small class="muted">Lock or hide any category with the 🔒 / 👁 buttons that appear when you point at it in the category list.</small>
+    </div>
+    <div class="row-btns">
+      <button class="btn primary" id="set-save">Save</button>
+      <button class="btn ghost" id="set-clear-recent">Clear recently watched</button>
+      <button class="btn ghost" id="set-backup" title="Saves playlists, favourites, settings to your Downloads folder">💾 Backup</button>
+      <button class="btn ghost" id="set-restore">♻ Restore</button>
+      <input type="file" id="restore-file" accept=".json" class="hidden">
+      <button class="btn" id="set-diag">🩺 Create diagnostic report</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PLAYER (full) ============ -->
+<div id="player" class="player hidden">
+  <div id="subov" class="subov"></div>
+  <div id="swipe-osd" class="swipe-osd hidden"></div>
+  <div id="numzap" class="numzap hidden"></div>
+  <div class="player-top">
+    <button class="icon-btn" id="player-close" title="Back">←</button>
+    <div class="ptitle"><b id="player-title"></b><small id="player-sub"></small></div>
+    <div class="top-right">
+      <button class="btn small" id="player-rec" title="Record this channel">⏺ Rec</button>
+      <button class="btn small" id="player-link">🔗 Link</button>
+      <button class="btn small" id="player-guide">ⓘ TV Guide</button>
+      <button class="btn small" id="player-vlc">Open in VLC</button>
+    </div>
+  </div>
+  <div class="pstage">
+    <div id="player-host" class="player-host"></div>
+    <div class="pbuffer hidden" id="pbuffer"><div class="spinner"></div></div>
+    <div id="player-msg" class="player-msg hidden"></div>
+    <div class="nextbox hidden" id="nextbox"><small>Next episode in <b id="next-count">8</b>s</small><b id="next-name"></b><div class="row-btns"><button class="btn primary small" id="next-now">▶ Play now</button><button class="btn small" id="next-cancel">Cancel</button></div></div>
+    <div class="pbar" id="pbar">
+      <div class="prow1">
+        <span class="ptime" id="ptime-cur">00:00</span>
+        <div class="pseek" id="pseek">
+          <div class="pseek-track"><div class="pseek-buf" id="pseek-buf"></div><div class="pseek-fill" id="pseek-fill"></div><div class="pseek-knob" id="pseek-knob"></div></div>
+          <div class="pseek-tip hidden" id="pseek-tip"></div>
+        </div>
+        <span class="plive hidden" id="plive">● LIVE</span>
+        <span class="ptime" id="ptime">0:00:00</span>
+      </div>
+      <div class="prow2">
+        <div class="pside">
+          <div class="pvol">
+            <button class="pb" id="pb-mute" title="Mute (M)"><svg viewBox="0 0 24 24"><path id="pb-mute-ico" d="M3 9v6h4l5 5V4L7 9H3z"/></svg></button>
+            <input type="range" id="pb-vol" min="0" max="1" step="0.05" value="1">
+          </div>
+        </div>
+        <div class="pcenter">
+          <button class="pb" id="pb-aspect" title="Aspect ratio"><svg viewBox="0 0 24 24"><path d="M19 12h-2v3h-3v2h5v-5zM7 9h3V7H5v5h2V9zm14-6H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.99h18v14.02z"/></svg></button>
+          <button class="pb" id="pb-prev" title="Previous (PgUp)"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+          <button class="pb pskip" id="pb-back" title="Back 30s (←)"><svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg><b>30</b></button>
+          <button class="pb pbig" id="pb-play" title="Play / Pause (Space)"><svg viewBox="0 0 24 24"><path id="pb-play-ico" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg></button>
+          <button class="pb pskip" id="pb-fwd" title="Forward 30s (→)"><svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/></svg><b>30</b></button>
+          <button class="pb" id="pb-next" title="Next (PgDn)"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+          <div class="pmenu-wrap">
+            <button class="pb" id="pb-subs" title="Subtitles"><svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg></button>
+            <div class="pmenu hidden" id="menu-subs"></div>
+          </div>
+          <div class="pmenu-wrap">
+            <button class="pb" id="pb-audio" title="Audio track"><svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 0 0 16 14c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg></button>
+            <div class="pmenu hidden" id="menu-audio"></div>
+          </div>
+          <div class="pmenu-wrap">
+            <button class="pb" id="pb-set" title="Settings"><svg viewBox="0 0 24 24"><path d="M19.14 12.94a7.5 7.5 0 0 0 0-1.88l2.03-1.58-1.92-3.32-2.39.96a7.03 7.03 0 0 0-1.63-.94L14.87 3.6h-3.84l-.36 2.58c-.59.24-1.13.56-1.63.94l-2.39-.96-1.92 3.32 2.03 1.58a7.5 7.5 0 0 0 0 1.88l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.04.7 1.63.94l.36 2.58h3.84l.36-2.58c.59-.24 1.13-.56 1.63-.94l2.39.96 1.92-3.32-2.03-1.58zM12.95 15.6a3.6 3.6 0 1 1 0-7.2 3.6 3.6 0 0 1 0 7.2z"/></svg></button>
+            <div class="pmenu hidden" id="menu-set"></div>
+          </div>
+        </div>
+        <div class="pside right">
+          <button class="pb" id="pb-pip" title="Picture in picture"><svg viewBox="0 0 24 24"><path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 1.98 2 1.98h18c1.1 0 2-.88 2-1.98V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg></button>
+          <button class="pb" id="pb-fs" title="Full screen (F)"><svg viewBox="0 0 24 24"><path id="pb-fs-ico" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+        </div>
+      </div>
+      <input type="file" id="sub-file" accept=".srt,.vtt" class="hidden">
+    </div>
+  </div>
+  <aside class="guide hidden" id="guide"><h3>TV Guide</h3><div id="epg" class="epg"></div></aside>
+  <aside class="guide hidden" id="linkpanel">
+    <h3>Stream link</h3>
+    <p class="lp-name" id="lp-name"></p>
+    <textarea id="lp-url" class="lp-url" readonly spellcheck="false"></textarea>
+    <div class="lp-btns">
+      <button class="btn primary" id="lp-copy">📋 Copy URL</button>
+      <button class="btn" id="lp-dl">⬇ Download</button>
+    </div>
+    <p class="lp-note" id="lp-note"></p>
+  </aside>
+</div>
+
+<div id="subsearch" class="modal hidden" style="z-index:120">
+  <div class="modal-body" style="width:min(760px,94vw)">
+    <button class="icon-btn close" id="ss-close">✕</button>
+    <h2>🌐 Find subtitles online</h2>
+    <div class="ss-form">
+      <label style="flex:3">Title<input id="ss-title"></label>
+      <label style="flex:1">Year<input id="ss-year" placeholder="optional"></label>
+      <label style="flex:1">Season<input id="ss-season"></label>
+      <label style="flex:1">Episode<input id="ss-episode"></label>
+      <button class="btn primary" id="ss-go">🔍 Search</button>
+    </div>
+    <div class="ss-langs" id="ss-langs"></div>
+    <div class="ss-keys hidden" id="ss-keys">To search online you need a free API key from OpenSubtitles or SubDL (takes 2 minutes). <button class="btn small primary" id="ss-settings">Add key in Settings</button></div>
+    <div id="ss-results" class="ss-results"></div>
+  </div>
+</div>
+
+<div id="pinmodal" class="modal hidden" style="z-index:130">
+  <div class="modal-body narrow" style="width:340px">
+    <h2 id="pin-title">Enter PIN</h2>
+    <input id="pin-in" type="password" inputmode="numeric" maxlength="8" placeholder="••••" style="font-size:22px;letter-spacing:8px;text-align:center">
+    <div class="row-btns"><button class="btn primary" id="pin-ok">OK</button><button class="btn ghost" id="pin-cancel">Cancel</button></div>
+    <small class="muted" id="pin-msg"></small>
+  </div>
+</div>
+
+<div class="remindbar hidden" id="remindbar"><span id="rb-text"></span><button class="btn primary small" id="rb-watch">▶ Watch</button><button class="btn small ghost" id="rb-close">✖</button></div>
+
+<div id="loader" class="loader hidden"><div class="spinner"></div><div id="loader-text">Loading...</div></div>
+<div id="toast" class="toast hidden"></div>
+
+<script src="android.js"></script>
+<script src="app.js"></script>
+<script src="android-post.js"></script>
+</body>
+</html>

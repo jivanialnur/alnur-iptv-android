@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.alnur.iptv'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.alnur.iptv'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
+    }
+
+    signingConfigs {
+        release {
+            // personal sideload key (private repo) - the same key must sign every update
+            storeFile file('alnur-release.jks')
+            storePassword 'alnurIPTV2026'
+            keyAlias 'alnur'
+            keyPassword 'alnurIPTV2026'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs { useLegacyPackaging true }
+    }
+}
+
+dependencies {
+    implementation 'org.videolan.android:libvlc-all:3.6.0'
+}

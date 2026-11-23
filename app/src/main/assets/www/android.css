@@ -1,0 +1,12 @@
+/* tablet: hide what only the Windows app can do */
+.is-android [data-nav="rec"], .is-android [data-nav="guide"],
+.is-android #set-backup, .is-android #set-restore, .is-android #set-diag,
+.is-android label:has(#set-format), .is-android label:has(#set-convert), .is-android label:has(#set-vlc),
+.is-android label:has(#set-autovlc), .is-android .set-sec:has(#set-epg), .is-android .set-sec:has(#set-oskey),
+.is-android #lp-dl, .is-android #d-dl { display: none !important; }
+/* touch: always show small action icons that appear on mouse-hover on the PC */
+.is-android .ccard .fav-btn, .is-android .prow .fav-btn, .is-android .cat-actions { opacity: 1 !important; visibility: visible !important; }
+.is-android body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+.is-android .rail-btn { min-height: 48px; }
+.is-android input, .is-android select { font-size: 16px; }
+.is-android .kbd, .is-android kbd { display:none !important; }
