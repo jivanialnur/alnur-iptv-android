@@ -78,7 +78,7 @@
     backupExport: nope, backupImport: nope,
     epgLoad: async () => ({ ok: false, error: 'not on tablet' }), epgStatus: async () => ({}), epgFor: async () => ({}),
     subsSearch: async () => ({ results: [], errors: ['Online subtitles are not on the tablet yet'] }), subsDownload: nope,
-    openVLC: async () => false,
+    openVLC: async (url, name) => { try { return !!window.AndroidNative.openVlc(url, name || ''); } catch { return false; } },
     dlStart: async (url, name, ua) => {
       let r = {};
       try { r = JSON.parse(window.AndroidNative.dlStart(url, name, ua || UA)); } catch { r = { id: -1, error: 'Download could not start' }; }

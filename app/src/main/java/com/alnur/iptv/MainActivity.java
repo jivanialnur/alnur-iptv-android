@@ -181,6 +181,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void openUrl(String url) {
             runOnUiThread(() -> { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception ignored) { } });
         }
+        // "Open in VLC": the VLC app if installed, otherwise let the user pick a video app
+        @JavascriptInterface public boolean openVlc(String url, String title) {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(Uri.parse(url), "video/*");
+                i.putExtra("title", title);
+                try { startActivity(new Intent(i).setPackage("org.videolan.vlc")); }
+                catch (Exception e) {
+                    try { startActivity(Intent.createChooser(i, "Open with")); } catch (Exception ignored) { Toast.makeText(MainActivity.this, "No video app found", Toast.LENGTH_SHORT).show(); }
+                }
+            });
+            return true;
+        }
         // downloads (DownloadManager): web ⬇ menu
         @JavascriptInterface public String dlStart(String url, String name, String ua) {
             String[] err = new String[1];

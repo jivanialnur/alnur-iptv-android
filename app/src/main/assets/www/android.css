@@ -9,3 +9,28 @@
 .is-android .rail-btn { min-height: 48px; }
 .is-android input, .is-android select { font-size: 16px; }
 .is-android .kbd, .is-android kbd { display:none !important; }
+
+/* ---- tablet held upright (portrait): nothing may slide off the right edge ---- */
+@media (max-width: 900px) {
+  .side { width: 210px; }
+  .side .cats { padding: 0 4px 12px; }
+  .topbar2 { gap: 8px; padding: 10px 12px; }
+  .searchbox { flex: 1 1 auto; min-width: 0; }
+  .searchbox .crumb { display: inline-block; flex-shrink: 0; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+  .tools { gap: 0; flex-shrink: 0; }
+  .tool-btn { width: 34px; }
+  .clock { display: none; }
+  .main-head { flex-wrap: wrap; row-gap: 6px; padding: 12px 14px 8px; }
+  .pager { margin-left: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+  .dash { padding: 18px 16px; }
+  .dash-tiles { gap: 10px; }
+  .dtile { height: 120px; padding: 14px; }
+  .dt-ico { font-size: 34px; right: 12px; top: 10px; }
+  .modal-body { width: 96vw; padding: 18px; }
+  .modal-body.narrow { width: 94vw; }
+  .details { flex-direction: column; gap: 16px; }
+  .details .cover { width: 180px; }
+}
+/* landscape: the search box gives way first, so the clock never gets pushed off the edge */
+.is-android .searchbox { min-width: 0; }
+.is-android .tools { flex-shrink: 0; }

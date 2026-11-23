@@ -42,3 +42,6 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
 - 1.2.1: glass v2 – BitmapShader (CLAMP: black bars show stretched video edge), saturation 1.7 + lift, 1/8 frame, radius 4,
   top sheen + gradient rim; floating panel (60dp side margins). Seek bar grey = buffered: secondaryProgress = time + 3 s cache +
   (readBytes − demuxReadBytes) / demuxBitrate from IMedia.Stats (estimate, smoothed).
+- 1.2.2: portrait (CSS width ≈784 on the Pad 8) fixed in web/android.css @media (max-width:900px): narrower side list, search box shrinks,
+  clock hidden, pager wraps, details modal stacked. "Open in VLC" → bridge openVlc (VLC app, else chooser).
+  Layout test: /home/claude/pt/shot.js (Playwright, 784×1175 / 1175×784) + windows repo test/mock.js + test/android/srv.js.
