@@ -67,3 +67,7 @@ APK goes to the user via SendUserFile + `C:\Users\HP\Downloads` (device_commit_f
   Back / ← = minimise to picture-in-picture (close it from the small window), swipe DOWN in the middle third = minimise too.
   Result to the web goes via static `MainActivity.deliverPlayerResult()` (PiP runs in its own task). A new play closes the old player.
   Home: iOS-style glass theme in web/android.css (blur only on rail/side/topbar/pop-ups for speed; cards just see-through), dark variant.
+- 1.5.1: jumping inside the grey (buffered) part reconnected + grey bar lied after jumps. Now VOD media get
+  `:stream-filter=prefetch` (128 MB ring buffer, 1 MB reads, forward seek threshold 128 MB) → jumps inside it play from memory.
+  Grey bar = (readBytes − demuxReadBytes − value at the last jump) ÷ smoothed demuxBitrate + 3 s; resets to 0 on every jump/new media
+  (`markSeek`), so it never shows more than is really there. Not yet tested on the tablet.

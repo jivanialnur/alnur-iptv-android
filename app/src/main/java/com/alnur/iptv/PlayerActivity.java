@@ -217,6 +217,15 @@ public class PlayerActivity extends Activity {
         m.addOption(":network-caching=" + (isLive() ? 2000 : 3000));
         m.addOption(":http-reconnect");
         if (startMs > 5000) m.addOption(":start-time=" + (startMs / 1000.0));
+        if (!isLive()) {
+            // keep what was downloaded (128 MB ring buffer, ~5–10 min of a 1080p episode): jumping back or forward
+            // inside it plays from memory instead of opening a new connection to the server
+            m.addOption(":stream-filter=prefetch");
+            m.addOption(":prefetch-buffer-size=131072");      // KiB
+            m.addOption(":prefetch-read-size=1048576");       // read 1 MB at a time
+            m.addOption(":prefetch-seek-threshold=134217728"); // a forward jump inside the buffer waits for data instead of reconnecting
+        }
+        markSeek(); rateEma = 0;
         mp.setMedia(m);
         m.release();
         mp.play();
@@ -296,9 +305,12 @@ public class PlayerActivity extends Activity {
         }
     };
 
-    /** How far ahead of the playing point VLC already has the video (grey part of the seek bar).
-     *  = network cache VLC keeps (3 s) + data read from the server but not yet used (stats: read − demuxed bytes ÷ bitrate). */
-    long aheadSmooth = 0;
+    /** Grey part of the seek bar = what is really downloaded ahead of the playing point:
+     *  bytes read from the server but not yet used by the player (since the last jump) ÷ bitrate, + the 3 s VLC holds.
+     *  After a jump the count starts again from 0, so the bar never claims more than is really there. */
+    long bufBase = -1, aheadSmooth = 0;
+    float rateEma = 0;
+    void markSeek() { bufBase = -1; aheadSmooth = 0; }
     long bufferedAheadMs() {
         long ahead = 0;
         try {
@@ -306,16 +318,19 @@ public class PlayerActivity extends Activity {
             if (md != null) {
                 org.videolan.libvlc.interfaces.IMedia.Stats st = md.getStats();
                 md.release();
-                if (st != null && st.demuxBitrate > 0) {
-                    long backlog = Math.max(0L, (long) st.readBytes - (long) st.demuxReadBytes);
-                    ahead = (long) (backlog / st.demuxBitrate); // bitrate is bytes per ms
+                if (st != null) {
+                    long raw = Math.max(0L, (long) st.readBytes - (long) st.demuxReadBytes);
+                    if (bufBase < 0) bufBase = raw;                // data counted before the jump is not "ahead"
+                    if (raw < bufBase) bufBase = raw;
+                    long backlog = raw - bufBase;
+                    if (st.demuxBitrate > 0) rateEma = rateEma <= 0 ? st.demuxBitrate : rateEma * 0.9f + st.demuxBitrate * 0.1f;
+                    if (rateEma > 0) ahead = (long) (backlog / rateEma); // bytes ÷ (bytes per ms)
                 }
             }
         } catch (Throwable ignored) { }
-        if (!mp.isPlaying() && spinner.getVisibility() == View.VISIBLE) ahead = 0; // still loading
-        else ahead += 3000;
-        ahead = Math.min(ahead, 10 * 60 * 1000L);
-        aheadSmooth = aheadSmooth == 0 ? ahead : (aheadSmooth * 3 + ahead) / 4;
+        if (mp.isPlaying() && spinner.getVisibility() != View.VISIBLE) ahead += 3000; else if (ahead == 0) return 0;
+        ahead = Math.min(ahead, 30 * 60 * 1000L);
+        aheadSmooth = aheadSmooth == 0 ? ahead : (aheadSmooth + ahead) / 2;
         return aheadSmooth;
     }
 
@@ -336,6 +351,7 @@ public class PlayerActivity extends Activity {
         if (isLive()) return;
         long d = mp.getLength(), t = mp.getTime() + sec * 1000;
         if (d > 0) t = Math.max(0, Math.min(d - 2000, t));
+        markSeek();
         mp.setTime(Math.max(0, t));
         osd((sec > 0 ? "+" : "") + sec + " s");
         showControls();
@@ -749,7 +765,7 @@ public class PlayerActivity extends Activity {
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user) curTime.setText(fmt(p)); }
             @Override public void onStartTrackingTouch(SeekBar s) { seeking = true; h.removeCallbacks(hideCtl); }
-            @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; aheadSmooth = 0; mp.setTime(s.getProgress() * 1000L); showControls(); }
+            @Override public void onStopTrackingTouch(SeekBar s) { seeking = false; markSeek(); mp.setTime(s.getProgress() * 1000L); showControls(); }
         });
         vol.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
